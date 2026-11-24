@@ -53,6 +53,8 @@ def header(assets):
         o.append(f'    {{{gx}, {gy}, {ang}, {fl}, 0}},')
     o.append('};')
     o.append(f'#define SCY_CUT_W 320\n#define SCY_CUT_H 180\n#define SCY_RENDER_K {fj["k"]}')
+    # where the cutscene's act 3 shows the rooster (panel pixels; his feet) and how big (x his 1x size)
+    o.append('#define SCY_CUT_HERO_X 118\n#define SCY_CUT_HERO_Y 162\n#define SCY_CUT_HERO_K 1.6f')
     return '\n'.join(o) + '\n'
 
 

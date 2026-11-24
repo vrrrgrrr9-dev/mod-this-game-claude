@@ -256,8 +256,8 @@ def frame(f, rooster=None):
             im = rocks[rk]
             im = im.resize((int(im.width * sc), int(im.height * sc)), Image.NEAREST)
             put(a, im, int(rx - im.width / 2), int(ry - im.height / 2 + bob), fade)
-        if g >= 4:
-            al = min(1.0, (g - 4) / 3)
+        if g >= 4 and hero is not None:            # (the game draws him live at 2x detail instead:
+            al = min(1.0, (g - 4) / 3)             #  feet at HERO_FEET, HERO_SCALE x his 1x size)
             put(a, hero, int(118 - hero.width / 2), int(176 - hero.height + 8), al)
     if g >= 8:
         im = a.astype(np.uint8)

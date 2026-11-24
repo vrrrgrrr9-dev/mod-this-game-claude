@@ -48,7 +48,7 @@ def get_apk(args, work):
     return path
 
 
-def build_native(work, libyoyo, assets):
+def build_native(work, libyoyo, assets, droid):
     gen = os.path.join(work, 'gen'); os.makedirs(gen, exist_ok=True)
     import manifest
     open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header())
@@ -56,6 +56,7 @@ def build_native(work, libyoyo, assets):
          os.path.join(gen, 'scyther_assets.h')])
     run([sys.executable, '-I', os.path.join(HERE, 'gen_engine.py'), libyoyo,
          os.path.join(gen, 'engine.ld'), os.path.join(gen, 'engine_vars.h')])
+    run([sys.executable, '-I', os.path.join(HERE, 'gen_stage.py'), droid, os.path.join(gen, 'stage_decor.h')])
     objs = []
     for c in ('jeff.c', 'scyther.c', 'hooks.c', 'libc.c'):
         o = os.path.join(gen, c[:-2] + '.o')
@@ -97,6 +98,7 @@ def main():
     g.add_argument('--apk'); g.add_argument('--parts', nargs='+')
     ap.add_argument('--out', required=True)
     ap.add_argument('--signer')
+    ap.add_argument('--assets', help='reuse an already rendered assets dir (skips the art build)')
     args = ap.parse_args()
     work = os.path.abspath(args.out); os.makedirs(work, exist_ok=True)
 
@@ -106,11 +108,15 @@ def main():
     droid_in = os.path.join(work, 'game.orig.droid'); open(droid_in, 'wb').write(z.read('assets/game.droid'))
 
     assets = os.path.join(work, 'assets')
-    shutil.rmtree(assets, ignore_errors=True)
-    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'build_art.py'), assets])
-    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'build_art.py'), assets])
+    if args.assets and os.path.abspath(args.assets) != assets:
+        shutil.rmtree(assets, ignore_errors=True)
+        shutil.copytree(args.assets, assets)
+    elif not args.assets:
+        shutil.rmtree(assets, ignore_errors=True)
+        run([sys.executable, '-I', os.path.join(ROOT, 'art', 'build_art.py'), assets])
+        run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'build_art.py'), assets])
 
-    elf = build_native(work, lib_in, assets)
+    elf = build_native(work, lib_in, assets, droid_in)
     lib_out = os.path.join(work, 'libyoyo.so')
     droid_out = os.path.join(work, 'game.droid')
     run([sys.executable, '-I', os.path.join(HERE, 'elfpatch.py'), lib_in, elf, lib_out])

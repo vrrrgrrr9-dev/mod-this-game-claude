@@ -79,6 +79,7 @@ typedef struct {
     float shake;
     int aura_t;
     int fail_t;
+    int home_t; float home_v, home_dir;   /* homing lunge at the start of a punch */
 } Jeff;
 
 static Jeff g_jeff[8];
@@ -348,8 +349,35 @@ void gml_Object_o_jeff_Destroy_0(CInstance *s, CInstance *o) {
 static void start_skill1(CInstance *s, Jeff *j);
 static void start_skill2(CInstance *s, Jeff *j);
 
+static CInstance *find_target(CInstance *s, int *out_id);
+static float facing(CInstance *s);
+
+/* a short homing lunge so the punch connects (the CPU presses attack from ~50 px away): turns to an
+   opponent right behind him and closes the gap over 5 frames, on top of the punch's own push */
+static void jeff_home(CInstance *s, Jeff *j) {
+    int tid = -1;
+    j->home_t = 0;
+    if (!parent_ok(s)) return;
+    CInstance *e = find_target(s, &tid);
+    if (!e) return;
+    float dx = (float)(sget(e, &g_VAR_x) - sget(s, &g_VAR_x)), dy = (float)(sget(e, &g_VAR_y) - sget(s, &g_VAR_y));
+    float adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if (adx > 170 || ady > 70) return;
+    float dir = facing(s);
+    if (dx * dir < 0) {
+        if (adx > 70) return;
+        dir = -dir;
+        bset(s, &g_VAR_image_xscale, dir);
+    }
+    float gap = adx - 26;
+    if (gap <= 1) return;
+    if (gap > 120) gap = 120;
+    j->home_dir = dir; j->home_v = gap / 5; j->home_t = 5;
+}
+
 static void jeff_combo(CInstance *s, CInstance *o, int step) {
     Jeff *j = slot(s, true);
+    if ((step >= 1 && step <= 4) || (step >= 50 && step <= 53) || step == 10 || step == 60) jeff_home(s, j);
     bset(s, &g_VAR_image_speed, 0.3);
     iset_b(s, &g_VAR_combo_nextcombo, false);
     double dmg = parent_ok(s) ? pget(s, &g_VAR_plr_dmg) : 40;
@@ -587,6 +615,19 @@ static bool special_pressed(CInstance *s) {
     return true;
 }
 
+/* the CPU never holds shield + skill together: when it presses skill with a full bar and the
+   opponent in reach, it uses the Bone Breaker instead */
+static bool cpu_wants_special(CInstance *s) {
+    if (!parent_ok(s) || pget(s, &g_VAR_plr_controller) != 2 || pget(s, &g_VAR_keyp_special) < 0.5) return false;
+    if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5 || pget(s, &g_VAR_is_dead) > 0.5) return false;
+    if (pget(s, &g_VAR_is_onair) > 0.5) return false;
+    double e = pget(s, &g_VAR_plr_energy), emax = pget(s, &g_VAR_plr_maxenergy);
+    double need = emax > 0 ? (emax < 100 ? emax : 100) : 100;
+    if (e + 0.001 < need) return false;
+    int tid = -1;
+    return find_target(s, &tid) != 0;
+}
+
 static void pin_target(CInstance *s, Jeff *j) {
     CInstance *c = j->tgt_id >= 0 ? YYGML_FindInstance(j->tgt_id) : 0;
     if (!c) return;
@@ -746,7 +787,7 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
         beam_step(s, j);
         return;
     }
-    if (pok && j->move == MOVE_NONE && special_pressed(s)) {
+    if (pok && j->move == MOVE_NONE && (special_pressed(s) || cpu_wants_special(s))) {
         start_special(s, j);
         if (j->move == MOVE_SPECIAL) return;
     }
@@ -754,6 +795,11 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
     RValue ret = rv_undef();
     gml_Script_scr_plr_step(s, o, &ret, 0, 0);          /* the game's movement / input framework */
     rv_free(&ret);
+    if (j->home_t > 0) {                                /* homing lunge of the current punch */
+        j->home_t--;
+        if (pok && pget(s, &g_VAR_is_hurt) < 0.5) bset(s, &g_VAR_hspeed, sget(s, &g_VAR_hspeed) + j->home_dir * j->home_v);
+        else j->home_t = 0;
+    }
 
     if (pok && (j->move == MOVE_SKILL1 || j->move == MOVE_SKILL2)) {
         if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5) j->move = MOVE_NONE;   /* interrupted */

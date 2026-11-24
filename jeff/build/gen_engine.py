@@ -50,6 +50,13 @@ FUNCS = {  # C name -> mangled engine symbol
     'F_PlaceMeeting': '_Z14F_PlaceMeetingR6RValueP9CInstanceS2_iPS_',
     'F_CollisionPoint': '_Z16F_CollisionPointR6RValueP9CInstanceS2_iPS_',
     'F_DrawSpriteStretchedExt': '_Z24F_DrawSpriteStretchedExtR6RValueP9CInstanceS2_iPS_',
+    # Scyther: the void stage's perspective floor, real-time 3D effects (blade trails, rings)
+    'F_LayerGetDepth': '_Z15F_LayerGetDepthR6RValueP9CInstanceS2_iPS_',
+    'F_DrawSpritePartExt': '_Z19F_DrawSpritePartExtR6RValueP9CInstanceS2_iPS_',
+    'F_DrawSpritePos': '_Z15F_DrawSpritePosR6RValueP9CInstanceS2_iPS_',
+    'F_DrawPrimitiveBegin': '_Z20F_DrawPrimitiveBeginR6RValueP9CInstanceS2_iPS_',
+    'F_DrawVertexColor': '_Z17F_DrawVertexColorR6RValueP9CInstanceS2_iPS_',
+    'F_DrawPrimitiveEnd': '_Z18F_DrawPrimitiveEndR6RValueP9CInstanceS2_iPS_',
     'gml_Script_scr_plr_step': '_Z23gml_Script_scr_plr_stepP9CInstanceS0_R8YYRValueiPPS1_',
     'gml_Script_scr_combo_normal': '_Z27gml_Script_scr_combo_normalP9CInstanceS0_R8YYRValueiPPS1_',
     'gml_Script_scr_char_charge_effect': '_Z33gml_Script_scr_char_charge_effectP9CInstanceS0_R8YYRValueiPPS1_',
@@ -74,7 +81,8 @@ can_hit_fallen can_hurt delay_hit hit_effect hit_snd_miss charord char chars_num
 char_obj char_face char_shop_back char_unlocked char_bought char_stats_hp char_stats_dmg
 char_stats_speed char_stats_pwr char_stats_combat char_shop_price char_shop_level
 char_shop_needchar char_shop_cond char_shop_chall char_price camera_shake cd_immunity
-game_gm game_plrchar image_angle room_width'''.split()
+game_gm game_plrchar image_angle room_width
+bbox_left bbox_right bbox_top bbox_bottom is_running'''.split()
 FUNCIDS = ['display_get_gui_width', 'display_get_gui_height', 'instance_exists', 'array_length_1d']
 
 def main():

@@ -55,6 +55,7 @@ technique, chained on top of the mod:
 pip install numpy pillow scipy            # art
 # + clang/ld.lld, binutils nm, llvm-objdump, ffmpeg (libvorbis), java + uber-apk-signer.jar
 python build/build.py --parts WOTU_COCO69.apk.xz.part0{1..5} --out out --signer uber-apk-signer.jar
+# --assets out/assets reuses already rendered art (the art takes a few minutes)
 ```
 
 Output: `out/WOTU_COCO69_Jeff.apk`, signed with the debug key built into uber-apk-signer. That is
@@ -92,18 +93,47 @@ density and drawn at half scale; code is `src/scyther.c`.
 
 | Input | Move |
 |---|---|
-| Attack A | Rift Cleave → Twin Crescent → Orbit Reap → Event Horizon Cleave |
-| Attack B | Crescent Throw → Spur Vault → Dimensional Stitch → Singular Rend (teleports behind) |
-| Down + attack / air attack | Ground Reaper / Falling Star |
-| Skill | Event Horizon — a black hole that drags the opponent in, then collapses |
-| Down + skill | Void Lance — an aperture tear fires a beam, ends in a nova |
-| Shield + skill (full bar) | SINGULARITY — cutscene, one huge unblockable hit (no instant K.O.), then the stage becomes a void of floating rocks |
+| Attack A | Rift Cleave -> Twin Crescent -> **Comet Thrust** -> Orbit Reap -> Event Horizon Cleave |
+| Attack B | Crescent Throw -> Spur Vault -> **Phase Step** (blinks through the opponent 3x) -> Dimensional Stitch -> Singular Rend (portal, cuts from behind) |
+| Run + attack | **Meteor Dash** - dashes straight through the opponent, leaves a tear behind, then the rest of the combo |
+| Down + attack A / B | Ground Reaper (trip) / **Rising Moon** (launcher) |
+| Air attack A / B | Falling Star, attack again -> **Sky Splitter** (diving cleave, crater) / **Gravity Drop** (plunge, crater) |
+| Skill | Event Horizon - a black hole that drags the opponent in, then collapses |
+| Down + skill | Void Lance - an aperture tear fires a beam, ends in a nova |
+| Shield + skill (full bar) | SINGULARITY - cutscene, one huge unblockable hit (no instant K.O.), then the stage becomes a void of floating rocks |
 
-Every cut leaves a reality tear; swings use 3D arcs split behind/in front of him. Offline only,
-same as Jeff.
+Pacing: moves are 16-46 frames at 60 fps, each one moves him (lunges, hops, dashes, blinks, dives)
+and homes in on the opponent so the cut connects; he stops at contact instead of walking through
+(except Meteor Dash, which is meant to pass through).
 
-## Known issue
+3D, drawn by the game every frame from the scythe's real pose: blade trails (triangle strips from
+mid-blade to tip across the last 10 poses, split in front of / behind the body), shockwave rings in
+a perspective ground plane (far half behind him, near half in front), debris thrown with depth
+(scaled and sorted by z), portals that turn edge-on -> facing -> edge-on, motion smears along his
+velocity. Pre-rendered 3D: the swing arcs and the scythe sprite (angle, tilted orbit, spinning disc).
 
-* Reported from play: when Jeff is the CPU opponent his attacks don't hurt the player. The game's
-  hit rules (`scr_collision_hitmask`) treat players and CPUs the same, and Jeff's reach matches
-  Erbito's, so the cause is not found yet. Scyther uses the same hit system and may be affected.
+The void stage: the stages paint their scenery with background/tile layers and with placed
+instances (`o_map_bk` paints the whole backdrop from a 900000-deep instance layer; `o_tile_*` are
+trees, houses, grass). Everything behind the fighters is hidden: layers with `layer_set_visible`,
+scenery instances (listed from game.droid at build time by `build/gen_stage.py`) with
+`visible = false`, so they keep their collisions. Draw Begin then paints space, floating rocks and a
+perspective stone slab on every solid platform (the top face narrows toward the camera centre, so it
+parallaxes as the camera pans). If a device never runs Draw Begin, the normal Draw event paints it.
+
+In the cutscene's last act the rooster is drawn live from his 2x sprites, so he stays sharp on any
+screen size. Offline only, same as Jeff.
+
+## CPU opponents
+
+Reported from play: when Jeff was the CPU, his attacks didn't hurt the player. The game's AI
+(`scr_ai_medium`) presses attack from up to ~50 px away (plus a lead for the target's speed) and
+never holds shield and skill together. The likely cause is that the CPU's short punches fell short,
+and it could never use a shield + skill special. This is not confirmed on a phone. Both characters
+now:
+
+* lunge toward an opponent up to ~170 px in front at the start of each melee move. This also turns
+  them round when the opponent is right behind.
+* use their special when the CPU (`plr_controller == 2`) presses skill with a full bar and an
+  opponent in reach.
+
+The emulator test covers both, for Scyther and for Jeff. It has not been checked on a phone yet.

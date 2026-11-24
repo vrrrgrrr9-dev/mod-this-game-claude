@@ -15,6 +15,8 @@ from unicorn import Uc, UcError, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_CODE, UC_HO
 from unicorn.arm64_const import *
 
 SO, ELF, LD = sys.argv[1:4]
+import os
+GEN_DIR = os.path.dirname(os.path.abspath(ELF))
 BASE = 0x10000000                       # load bias (non-zero so NULL derefs fault)
 HEAP = 0x80000000; HEAP_SZ = 0x4000000
 STACK = 0x90000000; STACK_SZ = 0x200000
@@ -216,7 +218,7 @@ def st_iexists():
 def st_draw_ext():
     spr = sW(1)
     if spr not in sprites: calls.append(('BAD_SPRITE_DRAW', spr))
-    calls.append(('draw', spr, round(S(0), 2), state['blend']))
+    calls.append(('draw', spr, round(S(0), 2), state['blend'], round(S(3), 2)))
 def st_draw_self(): calls.append(('draw_self',))
 def slot_owner(addr):
     for inst in list(insts.values()) + [glob]:
@@ -248,6 +250,23 @@ def st_eltype(): a = args_rv(1, X(4)); rv_write(X(0), float(ELTYPE.get(int(a[0][
 def st_layer_vis(): a = args_rv(2, X(4)); calls.append(('layer_visible', int(a[0][1]), a[1][1])); rv_write(X(0), None)
 def st_cam(v): return lambda: rv_write(X(0), v)
 def st_stretched(): a = args_rv(8, X(4)); calls.append(('stretched', int(a[0][1]))); rv_write(X(0), None)
+LAYER_DEPTH = {1: 900000.0, 2: 0.0, 3: 500.0, 4: -200.0}     # layer 4 is in front of the fighters
+def st_layer_depth(): a = args_rv(1, X(4)); rv_write(X(0), LAYER_DEPTH.get(int(a[0][1]), 0.0))
+def st_part(): a = args_rv(12, X(4)); calls.append(('part', int(a[0][1]))); rv_write(X(0), None)
+def st_spritepos():
+    a = args_rv(11, X(4)); calls.append(('spritepos', int(a[0][1]), [v for _, v in a[2:10]])); rv_write(X(0), None)
+prim = {'open': False, 'n': 0, 'strips': 0, 'verts': 0}
+def st_prim_begin():
+    if prim['open']: calls.append(('PRIM_NESTED',))
+    prim['open'] = True; prim['n'] = 0; calls.append(('prim_begin',)); rv_write(X(0), None)
+def st_vertex():
+    if not prim['open']: calls.append(('VERTEX_OUTSIDE',))
+    a = args_rv(4, X(4))
+    if not (0.0 <= a[3][1] <= 1.0): calls.append(('BAD_ALPHA', a[3][1]))
+    prim['n'] += 1; prim['verts'] += 1; rv_write(X(0), None)
+def st_prim_end():
+    if not prim['open']: calls.append(('PRIM_END_UNOPENED',))
+    prim['open'] = False; prim['strips'] += 1; calls.append(('prim_end', prim['n'])); rv_write(X(0), None)
 def st_script(name):
     def f():
         argc = sW(3); a = args_pp(argc, X(4)) if argc > 0 else []
@@ -288,6 +307,8 @@ STUB = {
     'F_LayerGetAll': st_layer_all, 'F_LayerGetAllElements': st_layer_elems, 'F_LayerGetElementType': st_eltype,
     'F_LayerSetVisible': st_layer_vis, 'F_PlaceMeeting': st_cam(0.0), 'F_CollisionPoint': st_cam(0.0),
     'F_DrawSpriteStretchedExt': st_stretched,
+    'F_LayerGetDepth': st_layer_depth, 'F_DrawSpritePartExt': st_part, 'F_DrawSpritePos': st_spritepos,
+    'F_DrawPrimitiveBegin': st_prim_begin, 'F_DrawVertexColor': st_vertex, 'F_DrawPrimitiveEnd': st_prim_end,
 }
 HOOKS = {BASE + ENG[k]: f for k, f in STUB.items()}
 for k in range(8):
@@ -474,6 +495,23 @@ ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 4
 call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
 check(ctrl.get('plr_energy') == 40 and ectrl.get('plr_hp') == 1500, 'no energy spent, enemy untouched')
 
+print('[9b] Jeff homes in on the opponent; as the CPU he uses the Bone Breaker')
+ctrl.set('key_defend', 0); ctrl.set('keyp_special', 0); ctrl.set('plr_energy', 40)
+jeff.set('x', 400); jeff.set('image_xscale', 1); jeff.set('hspeed', 0); enemy.set('x', 500); ectrl.set('plr_hp', 1500)
+calls.clear(); jeff.set('combo_next', 1)
+call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
+call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+check(jeff.get('hspeed') > 5, f'jab lunges toward the opponent 100 px away (hspeed {jeff.get("hspeed"):.1f})')
+for _ in range(6): call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+jeff.set('combo_next', -1); call('gml_Object_o_jeff_Alarm_2', jeff.ptr, jeff.ptr)
+ctrl.set('plr_controller', 2); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
+calls.clear(); call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+check(ctrl.get('plr_energy') == 0, 'CPU Jeff fired the Bone Breaker without holding shield')
+for t in range(14 + 156 + 40):
+    call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+check(ectrl.get('plr_hp') == 0 and ctrl.get('can_gethurt') == 1, 'it lands on the player')
+ctrl.set('plr_controller', 0); ctrl.set('keyp_special', 0)
+
 print('[10] destroy')
 calls.clear(); call('gml_Object_o_jeff_Destroy_0', jeff.ptr, jeff.ptr)
 check(('parent_destroy',) in calls, 'parent destroy called')
@@ -523,58 +561,107 @@ def tick(press_next=True, draw=True):
 sc_ectrl = new_inst(431); sc_ectrl.set('plr_team', 2); sc_ectrl.set('plr_hp', 1900); sc_ectrl.set('is_dead', 0)
 foe = new_inst(523); foe.set('x', 470); foe.set('y', 300); foe.set('parent', sc_ectrl.id)
 
-print('[13] Scyther combo A: Rift Cleave -> Twin Crescent -> Orbit Reap -> Event Horizon Cleave')
-calls.clear(); scy.set('combo_next', 1)
+COMBO_A = ['scyther_a1.png', 'scyther_a2.png', 'scyther_thrust.png', 'scyther_a3.png', 'scyther_a4.png']
+COMBO_B = ['scyther_b1.png', 'scyther_b2.png', 'scyther_phase.png', 'scyther_b3.png', 'scyther_b4.png']
+def prim_ok():
+    bad = [c for c in calls if c[0] in ('PRIM_NESTED', 'VERTEX_OUTSIDE', 'PRIM_END_UNOPENED', 'BAD_ALPHA')]
+    return not bad and not prim['open'], bad[:3]
+def run_chain(start, frames, press=True, track=None):
+    calls.clear(); scy.set('combo_next', start); scy.set('hspeed', 0)
+    call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
+    shown = []
+    for _ in range(frames):
+        tick(press_next=press)
+        nm = sprites.get(int(scy.get('sprite_index')), ('',))[0]
+        if not shown or shown[-1] != nm: shown.append(nm)
+        if track: track()
+        if sc_ctrl.get('is_attacking') == 0: break
+    return shown
+
+print('[13] Scyther combo A: Rift Cleave -> Twin Crescent -> Comet Thrust -> Orbit Reap -> Event Horizon Cleave')
+scy.set('x', 400); scy.set('image_xscale', 1); foe.set('x', 470)
+calls.clear(); scy.set('combo_next', 1); scy.set('hspeed', 0)
 call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
-shown = []
-for _ in range(190):
+tick()
+check(scy.get('hspeed') > 5, f'homes in on the opponent 70 px away (hspeed {scy.get("hspeed"):.1f})')
+prim['verts'] = 0
+shown = ['scyther_a1.png']
+for _ in range(200):
     tick()
     nm = sprites.get(int(scy.get('sprite_index')), ('',))[0]
-    if not shown or shown[-1] != nm: shown.append(nm)
+    if shown[-1] != nm: shown.append(nm)
     if sc_ctrl.get('is_attacking') == 0: break
-check([s for s in shown if s.startswith('scyther_a')] == ['scyther_a1.png', 'scyther_a2.png', 'scyther_a3.png', 'scyther_a4.png'], f'steps shown: {shown}')
+check([s_ for s_ in shown if s_ in COMBO_A] == COMBO_A, f'steps shown: {shown}')
 hits = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-check(len(hits) >= 8, f'hitboxes: {len(hits)} (1 + 2 + 3 + 2)')
+check(len(hits) >= 10, f'hitboxes: {len(hits)} (1 + 2 + 2 + 3 + 2)')
 behind = [c for c in hits if c[2] < scy.get('x') - 10]
 check(len(behind) >= 1, 'Orbit Reap also hits behind him')
 d = drawn_names()
 check({'scyther_rift_v.png', 'scyther_rift_e.png', 'scyther_riftbig_v.png'} <= d, 'every cut tears reality (small + giant tears drawn)')
 check({'scyther_arc_rise_b.png', 'scyther_arc_rise_f.png', 'scyther_arc_orbit_b.png', 'scyther_arc_cleave_f.png'} <= d, '3D arcs drawn (back + front layers)')
 check({'scyther_orbb.png', 'scyther_orbf.png'} <= d and ({'scyther_wpn0.png', 'scyther_wpn1.png'} & d), 'scythe drawn in hand and twirling in its 3D orbit')
+check({'scyther_hitfx.png', 'scyther_bh_debris.png', 'scyther_dash.png'} <= d, 'cut flashes, debris with depth, dash lines drawn')
+strips = sum(1 for c in calls if c[0] == 'prim_end')
+ok, bad = prim_ok()
+check(strips >= 40 and prim['verts'] >= 400 and ok, f'3D blade trails + rings: {strips} strips, {prim["verts"]} vertices, balanced {bad}')
 check(sc_ctrl.get('is_attacking') == 0 and scy.get('combo_next') == -1, 'finisher ends the combo, is_attacking cleared')
 check(not any(c[0] == 'BAD_SPRITE_DRAW' for c in calls), 'no invalid sprite draws')
 
-print('[14] Scyther combo B: Crescent Throw -> Spur Vault -> Dimensional Stitch -> Singular Rend')
-calls.clear(); scy.set('combo_next', 50); scy.set('x', 400); scy.set('image_xscale', 1); foe.set('x', 470)
-call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
-shown = []; flipped = False
-for _ in range(330):
-    tick()
-    nm = sprites.get(int(scy.get('sprite_index')), ('',))[0]
-    if not shown or shown[-1] != nm: shown.append(nm)
-    if scy.get('image_xscale') < 0: flipped = True
-    if sc_ctrl.get('is_attacking') == 0: break
-check([s for s in shown if s.startswith('scyther_b')] == ['scyther_b1.png', 'scyther_b2.png', 'scyther_b3.png', 'scyther_b4.png'], f'steps shown: {shown}')
+print('[14] Scyther combo B: Crescent Throw -> Spur Vault -> Phase Step -> Dimensional Stitch -> Singular Rend')
+scy.set('x', 400); scy.set('image_xscale', 1); foe.set('x', 470)
+sides = set()
+def side():
+    if scy.get('sprite_index') == next(k for k, v in sprites.items() if v[0] == 'scyther_phase.png'):
+        sides.add('right' if scy.get('x') > foe.get('x') else 'left')
+shown = run_chain(50, 360, track=side)
+check([s_ for s_ in shown if s_ in COMBO_B] == COMBO_B, f'steps shown: {shown}')
 d = drawn_names()
 check('scyther_disc.png' in d, 'thrown scythe drawn as a spinning disc')
-check(flipped and scy.get('x') > 470, f'Singular Rend teleports behind the opponent (x={scy.get("x"):.0f}) and turns around')
+check(sides == {'left', 'right'}, f'Phase Step blinks through him to both sides: {sorted(sides)}')
 hits = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-check(len(hits) >= 11, f'hitboxes: {len(hits)}')
+check(len(hits) >= 14, f'hitboxes: {len(hits)}')
 check(sc_ctrl.get('is_attacking') == 0, 'combo B ends cleanly')
+ok, bad = prim_ok()
+check(ok, f'primitives balanced {bad}')
 
-print('[15] Scyther crouch + air attacks')
-for start, anim in ((10, 'scyther_crouchatk.png'), (11, 'scyther_airatk.png')):
-    calls.clear(); scy.set('combo_next', start); scy.set('image_xscale', 1)
+print('[15] Scyther run attack, crouch and air attacks')
+sc_ctrl.set('is_running', 1); scy.set('x', 400); scy.set('image_xscale', 1)
+calls.clear(); scy.set('combo_next', 1); scy.set('hspeed', 0)
+call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
+sc_ctrl.set('is_running', 0)
+seen = set(); fast = 0
+for _ in range(30):
+    tick(press_next=False); seen.add(sprites.get(int(scy.get('sprite_index')), ('',))[0]); fast = max(fast, scy.get('hspeed'))
+check('scyther_dashatk.png' in seen and fast >= 10, f'Meteor Dash out of a run (top speed {fast:.0f})')
+for k in range(40): tick(press_next=False)
+for start, anim in ((10, 'scyther_crouchatk.png'), (60, 'scyther_crouchb.png')):
+    calls.clear(); scy.set('combo_next', start); scy.set('image_xscale', 1); scy.set('hspeed', 0)
     call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
     seen = set()
     for _ in range(40):
         tick(press_next=False); seen.add(sprites.get(int(scy.get('sprite_index')), ('',))[0])
     check(anim in seen and any(c[0] == 'instance_create' and c[1] == 224 for c in calls), f'{anim[8:-4]}: shown and hits')
+# air A, pressed again -> Sky Splitter dive; air B -> Gravity Drop; landing makes a crater
+for start, anims_, press in ((11, ('scyther_airatk.png', 'scyther_airatk2.png'), True), (61, ('scyther_airb.png',), False)):
+    calls.clear(); scy.set('combo_next', start); scy.set('image_xscale', 1); sc_ctrl.set('is_onair', 1)
+    call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
+    seen = set(); landed_at = None
+    for f in range(90):
+        tick(press_next=press); seen.add(sprites.get(int(scy.get('sprite_index')), ('',))[0])
+        if 'scyther_airatk2.png' in seen or start == 61:
+            if landed_at is None and scy.get('vspeed') >= 9: landed_at = f + 6
+        if landed_at is not None and f >= landed_at: sc_ctrl.set('is_onair', 0)
+        if sc_ctrl.get('is_attacking') == 0 and f > 10: break
+    crater = sum(1 for c in calls if c[0] == 'instance_create' and c[1] == 224)
+    rings = sum(1 for c in calls if c[0] == 'prim_end')
+    check(set(anims_) <= seen and crater >= 2 and rings >= 4, f'{"/".join(a_[8:-4] for a_ in anims_)}: shown, dive + crater hits {crater}, rings')
+    check(sc_ctrl.get('is_attacking') == 0, f'{start}: ends after landing')
+    sc_ctrl.set('is_onair', 0)
 
 print('[16] Scyther skill 1: Event Horizon')
 calls.clear(); scy.set('combo_next', 100); scy.set('x', 400); scy.set('image_xscale', 1); foe.set('x', 540)
 call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
-for _ in range(130):
+for _ in range(120):
     tick(press_next=False)
 d = drawn_names()
 check({'scyther_bh_core.png', 'scyther_bh_diskb.png', 'scyther_bh_diskf.png', 'scyther_bh_pull.png', 'scyther_bh_burst.png'} <= d, 'black hole: core, disk (back/front), pull, collapse drawn')
@@ -585,33 +672,53 @@ check(len(hits) >= 9, f'black hole hitboxes: {len(hits)}')
 print('[17] Scyther skill 2: Void Lance')
 calls.clear(); scy.set('combo_next', 110)
 call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
-for _ in range(110):
+for _ in range(100):
     tick(press_next=False)
 d = drawn_names()
 check({'scyther_vl_iris.png', 'scyther_vl_beam.png', 'scyther_vl_tip.png', 'scyther_vl_nova.png', 'scyther_riftbig_v.png'} <= d, 'aperture tear, iris, beam, tip, nova drawn')
 
 print('[18] Scyther special: SINGULARITY (no K.O.) + the void stage')
+DECOR = {}
+for l in open(GEN_DIR + '/stage_decor.h'):
+    m_ = re.match(r'\s+(\d+),\s+/\* (\w+) \*/', l)
+    if m_: DECOR[m_.group(2)] = int(m_.group(1))
+bk = new_inst(DECOR['o_map_bk']); bk.set('depth', 900000); bk.set('visible', 1)
+tree = new_inst(DECOR['o_tile_tree_1']); tree.set('depth', 300); tree.set('visible', 1)
+grass_front = new_inst(DECOR['o_tile_grass_1']); grass_front.set('depth', -50); grass_front.set('visible', 1)
+floor_ = new_inst(425); floor_.set('bbox_left', 0); floor_.set('bbox_right', 1499); floor_.set('bbox_top', 300); floor_.set('bbox_bottom', 620)
+ledge = new_inst(425); ledge.set('bbox_left', 520); ledge.set('bbox_right', 583); ledge.set('bbox_top', 230); ledge.set('bbox_bottom', 261)
 calls.clear(); foe.set('x', 520); scy.set('x', 400); sc_ectrl.set('plr_hp', 1900)
 first_new = next_id[0]                         # instances created from here on belong to the special
 sc_ctrl.set('key_defend', 1); sc_ctrl.set('keyp_special', 1); sc_ctrl.set('plr_energy', 100)
 tick()
 check(sc_ctrl.get('plr_energy') == 0 and sc_ctrl.get('keyp_special') == 0, 'full bar spent, skill press consumed')
 sc_ctrl.set('key_defend', 0)
-cut = 0
+cut = hero = 0
 for _ in range(40 + 180 + 45):
     tick(press_next=False)
     cut += sum(1 for c in calls if spr_name(c) and spr_name(c).startswith('scyther_cut_'))
+    hero += sum(1 for c in calls if spr_name(c) == 'scyther_sp.png' and c[4] > 1.5)   # big = the cutscene hero
     calls_keep = [c for c in calls if c[0] in ('instance_create', 'layer_visible', 'stretched')]
     calls.clear(); calls.extend(calls_keep)
 check(cut >= 170, f'cutscene drawn on the GUI layer: {cut} frames')
+check(hero >= 30, f'act 3: the rooster drawn live at 2x detail over the panels ({hero} frames)')
 check(sc_ectrl.get('plr_hp') == 1900, f'no instant K.O. (HP still {sc_ectrl.get("plr_hp")})')
 big = [i for i in insts.values() if i.obj == 224 and i.id >= first_new and (i.get('stats_dmg') or 0) >= 500]
 check(len(big) == 1 and big[0].get('can_defend') == 0, f'one huge unblockable hit ({big[0].get("stats_dmg") if big else 0:.0f} dmg)')
 hidden = sorted(c[1] for c in calls if c[0] == 'layer_visible' and not c[2])
-check(hidden == [1, 3, 4], f'stage background/tile/asset layers hidden, instance layer kept: {hidden}')
+check(hidden == [1, 3], f'background/tile/asset layers behind the fighters hidden, instance layer + front layer kept: {hidden}')
+check(bk.get('visible') == 0 and tree.get('visible') == 0, 'stage backdrop (o_map_bk) and scenery behind the fighters hidden')
+check(grass_front.get('visible') == 1, 'scenery in front of the fighters left alone')
 calls.clear(); tick()
 d = drawn_names()
-check(any(c[0] == 'stretched' for c in calls) and {'scyther_void_rocks.png', 'scyther_void_floor.png'} <= d, 'void sky, floating rocks and rock floor drawn behind everything')
+check(any(c[0] == 'stretched' for c in calls) and {'scyther_void_rocks.png'} <= d, 'void sky and floating rocks drawn')
+tops = [c for c in calls if c[0] == 'spritepos' and sprites[c[1]][0] == 'scyther_void_top.png']
+fronts = [c for c in calls if c[0] == 'part' and sprites[c[1]][0] == 'scyther_void_floor.png']
+far_y = sorted({round(c[2][1]) for c in tops})
+check(len(tops) >= 8 and len(fronts) >= 3 and far_y == [216, 286], f'perspective stone slabs on both solids: {len(tops)} top quads, {len(fronts)} front strips, far edges at y {far_y}')
+q = [c[2] for c in tops if round(c[2][1]) == 286]
+near_w = max(c[4] for c in q) - min(c[6] for c in q); far_w = max(c[2] for c in q) - min(c[0] for c in q)
+check(far_w < near_w, f'top face narrows toward the far edge (near {near_w:.0f} px, far {far_w:.0f} px)')
 check(sc_ctrl.get('can_gethurt') == 1 and any(c[0] == 'scr_plr_step' for c in calls), 'Scyther back to normal afterwards')
 
 print('[19] Scyther special without a full bar does nothing')
@@ -620,7 +727,19 @@ calls.clear(); tick()
 check(sc_ctrl.get('plr_energy') == 40, 'no energy spent')
 sc_ctrl.set('key_defend', 0); sc_ctrl.set('keyp_special', 0)
 
-print('[20] Scyther destroy')
+print('[20] Scyther as the CPU: uses SINGULARITY when its bar is full')
+sc_ctrl.set('plr_controller', 2); sc_ctrl.set('keyp_special', 1); sc_ctrl.set('plr_energy', 60)
+calls.clear(); tick()
+check(sc_ctrl.get('plr_energy') == 60, 'not with 60 energy (normal skill instead)')
+scy.set('x', 400); foe.set('x', 470); sc_ctrl.set('keyp_special', 1); sc_ctrl.set('plr_energy', 100)
+calls.clear(); tick()
+check(sc_ctrl.get('plr_energy') == 0 and sprites.get(int(scy.get('sprite_index')), ('',))[0] == 'scyther_sp.png', 'CPU fired the special without holding shield')
+for _ in range(40 + 180 + 45):
+    tick(press_next=False); calls.clear()
+check(sc_ctrl.get('can_gethurt') == 1, 'and finished it')
+sc_ctrl.set('plr_controller', 0); sc_ctrl.set('keyp_special', 0)
+
+print('[21] Scyther destroy')
 calls.clear(); call('gml_Object_o_scyther_Destroy_0', scy.ptr, scy.ptr)
 check(('parent_destroy',) in calls, 'parent destroy called')
 

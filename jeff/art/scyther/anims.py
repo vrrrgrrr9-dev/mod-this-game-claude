@@ -138,6 +138,45 @@ A['airatk'] = [P(rot=10, footF=(10, -10), footB=(-2, -9), toeF=30, grip=(20, -36
                P(rot=14, footF=(10, -10), footB=(-2, -9), toeF=30, grip=(20, -36), wang=90, fwing='raise', beak=24, eye='glow', flow=6),
                P(rot=6, footF=(9, -8), footB=(-3, -8), toeF=24, grip=(18, -34), wang=-40, flow=3)]
 
+# --------------------------------------------------------------------------------- new moves
+# Comet Thrust (combo A 3rd) - coils, then lunges like a comet, haft thrust forward through a ring burst
+A['thrust'] = [P(crouch=7, lean=-6, footF=(10, 0), footB=(-12, 0), grip=(5, -30), wang=176, wl=1, beak=8, eye='glow', flow=2, tail=4),
+               P(crouch=4, lean=28, neck=6, footF=(17, 0), footB=(-15, -2), toeB=-24, grip=(25, -32), wang=-2,
+                 beak=30, eye='glow', flow=9, tail=-8),
+               P(crouch=3, lean=24, neck=5, footF=(17, 0), footB=(-14, 0), grip=(26, -31), wang=6, beak=22, eye='glow', flow=8, tail=-6),
+               P(lean=8, footF=(9, 0), footB=(-9, 0), grip=(16, -34), wang=-50, flow=3)]
+# Phase Step (combo B 3rd) - blinks through the opponent three times, cutting from each side
+A['phase'] = [P(crouch=8, lean=18, footF=(9, 0), footB=(-11, 0), grip=(12, -22), wang=160, wl=1, eye='glow', beak=6, flow=3),
+              P(lean=14, footF=(12, 0), footB=(-8, 0), grip=(20, -42), wang=-120, beak=26, eye='glow', flow=6),
+              P(crouch=5, lean=20, footF=(12, 0), footB=(-10, 0), grip=(22, -22), wang=62, beak=24, eye='glow', flow=7),
+              P(lean=24, crouch=2, footF=(13, 0), footB=(-9, -2), grip=(22, -46), wang=-80, beak=30, eye='glow', flow=8,
+                fwing='raise')]
+# Rising Moon (down + attack B) - springs out of the crouch with a vertical crescent that launches
+A['crouchb'] = [P(crouch=10, lean=16, footF=(9, 0), footB=(-11, 0), grip=(8, -14), wang=200, wl=1, eye='glow', beak=8, flow=3),
+                P(lean=-6, footF=(10, -4), footB=(-6, 0), toeF=20, grip=(22, -46), wang=-100, beak=30, eye='glow', flow=7,
+                  fwing='raise'),
+                P(dy=-8, rot=-10, footF=(8, -10), footB=(-4, -8), toeF=30, toeB=24, grip=(15, -58), wang=-80, beak=26,
+                  eye='glow', flow=7, fwing='raise'),
+                P(lean=4, grip=(16, -36), wang=-60, flow=2)]
+# Gravity Drop (air attack B) - flips the scythe under him and plunges straight down, blades first
+A['airb'] = [P(rot=-8, footF=(8, -12), footB=(-4, -10), toeF=30, grip=(10, -16), wang=90, eye='glow', beak=12, flow=3,
+               fwing='raise'),
+             P(footF=(6, -7), footB=(-5, -7), toeF=60, toeB=60, grip=(12, -12), wang=90, beak=26, eye='glow', flow=-5,
+               tail=-12, fwing='raise'),
+             P(crouch=10, lean=20, neck=6, footF=(11, 0), footB=(-12, 0), grip=(18, -8), wang=95, beak=30, eye='glow', flow=8)]
+# Meteor Dash (run + attack) - a low dash straight through the opponent, scythe dragged behind then swung
+A['dashatk'] = [P(lean=32, crouch=6, neck=7, footF=(15, 0), footB=(-17, -2), toeB=-30, grip=(-3, -28), wang=170, wl=1,
+                  beak=10, eye='glow', flow=9, tail=-10),
+                P(lean=30, crouch=4, neck=6, footF=(17, 0), footB=(-15, -3), toeB=-24, grip=(24, -30), wang=20, beak=30,
+                  eye='glow', flow=10, tail=-10),
+                P(lean=20, footF=(14, 0), footB=(-12, 0), grip=(22, -40), wang=-70, beak=20, eye='glow', flow=8),
+                P(crouch=6, lean=-8, footF=(16, 0), footB=(-8, 0), grip=(14, -34), wang=-60, beak=6, flow=2, tail=6)]
+# Sky Splitter (air attack A, pressed again) - a diving diagonal cleave into the ground
+A['airatk2'] = [P(rot=-20, footF=(8, -12), footB=(-4, -10), toeF=30, fwing='raise', grip=(4, -50), wang=-150, wl=1, beak=16,
+                  eye='glow', flow=4),
+                P(rot=30, footF=(10, -6), footB=(-6, -8), toeF=40, grip=(22, -24), wang=50, beak=30, eye='glow', flow=8),
+                P(crouch=10, lean=22, neck=6, footF=(11, 0), footB=(-12, 0), grip=(20, -10), wang=80, beak=30, eye='glow', flow=8)]
+
 # --------------------------------------------------------------------------------- skills
 A['cast1'] = [P(crouch=2, fwing='raise', grip=(6, -54), wang=0, beak=10, eye='glow', flow=3),
               P(crouch=2, fwing='raise', grip=(8, -56), wang=90, beak=18, eye='glow', flow=4),
@@ -160,7 +199,7 @@ A['sp'] = [P(crouch=3, fwing='raise', grip=(8, -54), wang=0, beak=24, eye='glow'
 
 ANIM_ORDER = ['stand', 'walk', 'run', 'jump', 'fall', 'crouch', 'defend', 'charge', 'hurt', 'hurtup',
               'hurtdown', 'fallen', 'win', 'a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'b3', 'b4', 'crouchatk',
-              'airatk', 'cast1', 'cast2', 'sp']
+              'airatk', 'thrust', 'phase', 'crouchb', 'airb', 'dashatk', 'airatk2', 'cast1', 'cast2', 'sp']
 META_KEYS = ('wang', 'wl', 'wh', 'wf')
 
 

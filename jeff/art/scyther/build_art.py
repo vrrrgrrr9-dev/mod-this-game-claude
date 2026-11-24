@@ -85,10 +85,11 @@ def main(out):
 
     # the void left behind by SINGULARITY, and the cutscene
     rocks = void.build(out)
-    sprites += [('void_sky', 2, 0, 0, 0), ('void_rocks', 8, 40, 32, 0), ('void_floor', 1, 0, 8, 0), ('void_dust', 8, 4, 4, 0)]
-    hero = anims.hero_1x(anims.A['sp'][5])
-    hero = hero.resize((int(hero.width * 1.6), int(hero.height * 1.6)), Image.NEAREST)
-    cutscene.render_all(out, rocks, hero)
+    sprites += [('void_sky', 2, 0, 0, 0), ('void_rocks', 8, 40, 32, 0), ('void_floor', 1, 0, 0, 0),
+                ('void_top', 5, 0, 0, 0), ('void_dust', 8, 4, 4, 0)]
+    # the rooster is not baked into act 3: the game draws him live from his 2x sprites (crisp at any
+    # screen size) at manifest.HERO_* on top of the panels
+    cutscene.render_all(out, rocks, None)
     sprites += [('cut_a', 12, 0, 0, 0), ('cut_b', 12, 0, 0, 0), ('cut_c', 12, 0, 0, 0)]
 
     for name, fn in sfx.SOUNDS.items():

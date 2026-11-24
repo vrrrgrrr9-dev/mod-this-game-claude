@@ -75,6 +75,12 @@ void F_LayerSetVisible(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_PlaceMeeting(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_CollisionPoint(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_DrawSpriteStretchedExt(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_LayerGetDepth(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawSpritePartExt(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawSpritePos(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawPrimitiveBegin(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawVertexColor(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawPrimitiveEnd(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 
 RValue *gml_Script_scr_plr_step(CInstance *s, CInstance *o, RValue *ret, int argc, RValue **args);
 RValue *gml_Script_scr_combo_normal(CInstance *s, CInstance *o, RValue *ret, int argc, RValue **args);

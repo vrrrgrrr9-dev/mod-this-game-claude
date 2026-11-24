@@ -77,12 +77,15 @@ def rock_images():
 
 
 def floor():
+    """front face of a floating stone slab: flat top edge at y = 0 (the line the fighters stand on),
+    a rough underside that fades into the void.  Tiles horizontally (period 256)."""
     W, H = 256, 48
     rng = np.random.default_rng(42)
-    c = Canvas(W, H, 0, 8)
-    # periodic surface so the strip tiles seamlessly
-    xs = np.linspace(0, W, 33)
-    surf = [(x, -0.5 + 1.2 * math.sin(2 * math.pi * x / W * 3) + 0.8 * math.sin(2 * math.pi * x / W * 7 + 1)) for x in xs]
+    # painted on a 3x wide canvas and cropped to the middle period, so the shading has no seams
+    c = Canvas(3 * W, H, W, 0)
+    # flat top (the perspective top face is drawn by the game above it), periodic underside
+    xs = np.linspace(-W, 2 * W, 97)
+    surf = [(x, 0.0) for x in xs]
     under = []
     for i, x in enumerate(xs[::-1]):
         y = 14 + 10 * (0.5 + 0.5 * math.sin(2 * math.pi * x / W * 5 + 0.7)) + 8 * (0.5 + 0.5 * math.sin(2 * math.pi * x / W * 11))
@@ -95,16 +98,87 @@ def floor():
     for k in range(9):
         x0 = (k + 0.5) * W / 9 + rng.uniform(-8, 8)
         pts = [(x0, 0.5)]
-        for s in range(4):
+        for s_ in range(4):
             pts.append((pts[-1][0] + rng.uniform(-5, 5), pts[-1][1] + rng.uniform(2.5, 5)))
-        f = c.taper(pts, 0.5, 0.3) & m
-        c.img[f] = FISSURE
+        for off in (-W, 0, W):                          # the same cracks in every period
+            f = c.taper([(px + off, py) for px, py in pts], 0.5, 0.3) & m
+            c.img[f] = FISSURE
     c.outline()
-    img = c.img.copy()
+    img = c.img[:, W:2 * W].copy()
+    img[0, :, :3] = (150, 132, 200)                 # the lit front edge of the top face
+    img[0, :, 3] = 255
     # underside fades away into the void
     fade = np.clip(1 - (np.arange(H) - 26) / 22, 0, 1)
     img[..., 3] = (img[..., 3].astype(np.float32) * fade[:, None]).astype(np.uint8)
     return Image.fromarray(img, 'RGBA')
+
+
+def _pnoise(W, H, seed, octaves=((3, 2, 0.5), (7, 4, 0.3), (17, 7, 0.2))):
+    """noise that is periodic in x (period W), smooth in y."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    n = np.zeros((H, W), np.float32)
+    for fx, fy, amp in octaves:
+        for _ in range(3):
+            px, py = rng.uniform(0, 2 * np.pi, 2)
+            n += amp / 3 * np.sin(2 * np.pi * fx * xx / W + px + np.sin(2 * np.pi * fy * yy / max(H, 1) + py) * 1.3)
+    return n
+
+
+def top_tiles():
+    """the slab's top face, drawn by the game as a perspective quad (far edge narrower and shifted
+    toward the camera centre, so it parallaxes as the camera pans): 4 consecutive 64x16 pieces of
+    a 256-px tileable flagstone texture, + frame 4 = the darker side face texture."""
+    W, H = 256, 16
+    rng = np.random.default_rng(7)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    v = yy / (H - 1)                                  # 0 = far edge, 1 = near edge
+    n = _pnoise(W, H, 3)
+    base = np.array(STONE['base'][:3], np.float32)
+    lite = np.array(STONE['light'][:3], np.float32)
+    dark = np.array(STONE['shadow'][:3], np.float32)
+    # lit from above: the top face is the brightest stone, a little darker toward the far edge
+    k = np.clip(0.55 + 0.3 * v + 0.15 * n, 0, 1)[..., None]
+    rgb = base * (1 - k) + lite * k * 0.92 + base * k * 0.08
+    # flagstone joints: periodic Voronoi edges (points wrapped around x)
+    pts = [(rng.uniform(0, W), rng.uniform(-2, H + 2)) for _ in range(14)]
+    d1 = np.full((H, W), 1e9, np.float32); d2 = np.full((H, W), 1e9, np.float32)
+    for px, py in pts:
+        for off in (-W, 0, W):
+            # squash y: the face is seen at a grazing angle
+            d = np.sqrt(((xx - px - off) * 0.45) ** 2 + ((yy - py) * 1.6) ** 2)
+            d2 = np.minimum(d2, np.maximum(d1, d)); d1 = np.minimum(d1, d)
+    joint = (d2 - d1) < 0.9
+    rgb[joint] = dark * 0.8
+    # a few glowing violet fissures running across the stone
+    for k_ in range(4):                                 # jagged cracks (random walk with sharp turns)
+        x, y = rng.uniform(0, W), rng.uniform(3, H - 4)
+        dx = rng.choice((-1, 1))
+        for s_ in range(rng.integers(14, 26)):
+            rgb[int(y), int(x) % W] = (190, 100, 255)
+            if s_ % 6 == 2:
+                rgb[int(y), int(x + dx) % W] = (240, 200, 255)
+            x += dx * rng.uniform(0.8, 1.6)
+            if rng.random() < 0.35:
+                y = float(np.clip(y + rng.choice((-1, 1)), 1, H - 2))
+    # near edge: bright rim where the top face meets the front face
+    rgb[H - 1] = (150, 132, 200)
+    rgb[0] = rgb[0] * 0.8
+    tiles = []
+    for i in range(4):
+        a = np.concatenate([rgb[:, i * 64:(i + 1) * 64], np.full((H, 64, 1), 255, np.float32)], axis=2)
+        tiles.append(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA'))
+    # side face: darker, horizontal strata, fading downward
+    sh = 16
+    n2 = _pnoise(64, sh, 11)
+    s_rgb = dark[None, None] * (0.75 + 0.2 * n2[..., None]) + base[None, None] * 0.15
+    for yy_ in range(3, sh, 5):
+        s_rgb[yy_] *= 0.7
+    s_rgb[:, 0] = (110, 96, 160)
+    al = np.clip(1.4 - np.arange(sh) / sh, 0, 1)[:, None] * 255 * np.ones((sh, 64))
+    side = np.concatenate([s_rgb, al[..., None]], axis=2)
+    tiles.append(Image.fromarray(np.clip(side, 0, 255).astype(np.uint8), 'RGBA'))
+    return tiles
 
 
 def sky(k):
@@ -138,6 +212,7 @@ def build(out):
     rocks = rock_images()
     strip(rocks).save(os.path.join(out, 'scyther_void_rocks.png'))
     floor().save(os.path.join(out, 'scyther_void_floor.png'))
+    strip(top_tiles()).save(os.path.join(out, 'scyther_void_top.png'))
     strip([dust(k) for k in range(8)]).save(os.path.join(out, 'scyther_void_dust.png'))
     return rocks
 
