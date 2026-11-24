@@ -60,7 +60,8 @@ hit_spr hforce vforce stats_duration stats_hits stuntime can_knock can_follow ca
 can_hit_fallen can_hurt delay_hit hit_effect hit_snd_miss charord char chars_num char_title
 char_obj char_face char_shop_back char_unlocked char_bought char_stats_hp char_stats_dmg
 char_stats_speed char_stats_pwr char_stats_combat char_shop_price char_shop_level
-char_shop_needchar char_shop_cond char_shop_chall char_price camera_shake cd_immunity'''.split()
+char_shop_needchar char_shop_cond char_shop_chall char_price camera_shake cd_immunity
+game_gm game_plrchar'''.split()
 FUNCIDS = ['display_get_gui_width', 'display_get_gui_height', 'instance_exists']
 
 def main():

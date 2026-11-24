@@ -6,7 +6,8 @@
  *     the o_jeff object we add to game.droid points its event CodeIds at.
  *  2. scr_menu_get_char(id): character id 1005 = Jeff (name, title, object, face, shop fields).
  *  3. character-select list: after the mod rebuilds global.charord we make sure 1005 is in it and
- *     mark global.char[1005] as owned.
+ *     mark global.char[1005] as owned. Offline modes only: in online/LAN character select
+ *     (global.game_gm == 2) Jeff is left out, because the other player's game has no o_jeff.
  */
 #include "yyc.h"
 #include "jeff_assets.h"
@@ -131,8 +132,27 @@ static void jeff_charsel_add(void) {
     if (ch && (ch->kind & KIND_MASK) == VALUE_ARRAY) gset_i(&g_VAR_char, JEFF_CHAR_ID, 1);
 }
 
+#define GM_ONLINE 2              /* global.game_gm set by the main menu's Online button (LAN is under it) */
+#define ONLINE_SLOTS 2           /* online is 1v1: game_plrchar[1] = this player, [2] = the opponent */
+
+static int online_mode(void) {
+    RValue *gm = g_pGlobal ? var_slot_r(g_pGlobal, g_VAR_game_gm.id) : 0;
+    return gm && (int)rv_num(gm) == GM_ONLINE;
+}
+
+/* A Jeff pick left over from an offline match must not be carried into an online match. -1 is
+   "nothing picked", the same value the Coco mod uses to clear a character that isn't available. */
+static void jeff_clear_pick(void) {
+    RValue *pc = var_slot_r(g_pGlobal, g_VAR_game_plrchar.id);
+    if (!pc || (pc->kind & KIND_MASK) != VALUE_ARRAY) return;
+    for (int i = 1; i <= ONLINE_SLOTS; i++)
+        if ((int)gget_i(&g_VAR_game_plrchar, i) == OBJ_JEFF) gset_i(&g_VAR_game_plrchar, i, -1);
+}
+
 /* replaces the two `bl mod_charsel_ext` calls inside the mod's charsel Create hook */
 void jeff_charsel_ext(CInstance *s) {
     mod_charsel_ext(s);
-    jeff_charsel_add();
+    if (!g_pGlobal) return;
+    if (online_mode()) jeff_clear_pick();
+    else jeff_charsel_add();
 }

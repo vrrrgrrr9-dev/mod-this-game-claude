@@ -337,6 +337,22 @@ check(glob.arr.get(('char', 1005)) == 1, 'global.char[1005] = 1 (owned)')
 call('jeff_charsel_ext', menu.ptr)
 check(glob.get('chars_num') == 4, 'second rebuild does not add Jeff twice')
 
+print('[3b] online character select (global.game_gm == 2): Jeff stays out')
+glob.set('game_gm', 2.0)
+glob.slots['game_plrchar'] = alloc(16); uc.mem_write(glob.slots['game_plrchar'], struct.pack('<QII', 0x9abc, 0, ARRAY))
+glob.arr[('game_plrchar', 1)] = 685; glob.arr[('game_plrchar', 2)] = 523
+for i, v in enumerate([12, 5, 9], 1): glob.arr[('charord', i)] = v
+glob.arr.pop(('charord', 4), None); glob.set('chars_num', 3)
+call('jeff_charsel_ext', menu.ptr)
+check([glob.arr.get(('charord', i)) for i in range(1, 5)] == [12, 5, 9, None] and glob.get('chars_num') == 3,
+      f"online list unchanged: {[glob.arr.get(('charord', i)) for i in range(1, 5)]}")
+check(glob.arr.get(('game_plrchar', 1)) == -1, 'leftover offline Jeff pick cleared (game_plrchar[1] = -1)')
+check(glob.arr.get(('game_plrchar', 2)) == 523, 'other picks untouched')
+check(not any(k[0] == 'game_plrchar' and k[1] > 2 for k in glob.arr), 'only slots 1-2 touched')
+glob.set('game_gm', 1.0)
+call('jeff_charsel_ext', menu.ptr)
+check(glob.arr.get(('charord', 1)) == 1005 and glob.get('chars_num') == 4, 'back offline (game_gm 1): Jeff listed again')
+
 print('[4] create + alarm0')
 ctrl = new_inst(431); ctrl.set('plr_team', 1); ctrl.set('plr_dmg', 46); ctrl.set('plr_energy', 100); ctrl.set('plr_maxenergy', 100)
 for k in ('key_defend', 'keyp_special', 'is_hurt', 'is_fallen', 'is_dead', 'is_onair', 'is_charging'): ctrl.set(k, 0)

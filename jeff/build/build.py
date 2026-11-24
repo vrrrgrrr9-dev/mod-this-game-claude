@@ -6,7 +6,10 @@ usage:
 
 needs: python3 (numpy, pillow, scipy), clang + ld.lld (any recent LLVM), binutils nm, ffmpeg (libvorbis),
        java + uber-apk-signer.jar (--signer, default: <out>/uber-apk-signer.jar)
-result: <out>/WOTU_COCO69_Jeff.apk  (signed with the uber-apk-signer debug key)
+result: <out>/WOTU_COCO69_Jeff.apk, signed with the debug key built into uber-apk-signer. That is the
+        same certificate the Coco build is signed with, so the APK installs as an update over it and
+        players keep their data. The build checks this after signing and stops if the certificate
+        differs from the input APK's.
 """
 import argparse, lzma, os, shutil, subprocess, sys, zipfile
 
@@ -14,6 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, 'src')
 sys.path.insert(0, os.path.join(ROOT, 'art'))
+sys.path.insert(0, HERE)
+import apksig
 
 CFLAGS = ['--target=aarch64-linux-android21', '-O2', '-std=gnu11', '-ffreestanding', '-fno-builtin',
           '-fno-pic', '-fno-pie', '-mcmodel=small', '-ffixed-x18', '-fno-stack-protector', '-fno-exceptions',
@@ -117,6 +122,16 @@ def main():
     produced = [f for f in os.listdir(signed_dir) if f.endswith('.apk')]
     final = os.path.join(work, 'WOTU_COCO69_Jeff.apk')
     shutil.move(os.path.join(signed_dir, produced[0]), final)
+
+    # Must be signed like the installed Coco build, or Android refuses the update (uninstall = data loss).
+    orig, new = apksig.fingerprints(apk), apksig.fingerprints(final)
+    if not apksig.same_signer(orig, new):
+        bad = final + '.WRONG-KEY'
+        os.replace(final, bad)
+        sys.exit(f'signing certificate differs from the input APK, it would not install as an update:\n'
+                 f'  input : {orig}\n  output: {new}\n  (kept as {bad})')
+    print('signing certificate matches the input APK:', apksig.pretty(new['v2'][0] if 'v2' in new else
+                                                                     next(iter(new.values()))[0]))
     print('done ->', final)
 
 

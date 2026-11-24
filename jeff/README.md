@@ -34,7 +34,10 @@ technique, chained on top of the mod:
   * `jeff_get_char` — `scr_menu_get_char(1005)` returns Jeff (name, title, object 685, face card…);
     every other id falls through to the mod's hook.
   * `jeff_charsel_ext` — after the mod rebuilds `global.charord`, Jeff (id 1005) is put first in the
-    character select list and marked owned (`global.char[1005] = 1`).
+    character select list and marked owned (`global.char[1005] = 1`). Only outside online/LAN mode
+    (`global.game_gm != 2`): in online character select Jeff is left out, and a Jeff pick left over
+    from an offline match is cleared (`game_plrchar[1..2] = -1`), because the other player's game
+    has no `o_jeff`.
 * `src/jeff.c` — the fighter. Same structure as the game's own characters: `scr_plr_step` does
   movement/inputs, `alarm[3]`/`alarm[2]` drive the combo chain (native copies of the game's
   `scr_combos_*` / `scr_alarm2_combo`), melee hits use the game's `scr_combo_normal`, projectiles
@@ -54,11 +57,16 @@ pip install numpy pillow scipy            # art
 python build/build.py --parts WOTU_COCO69.apk.xz.part0{1..5} --out out --signer uber-apk-signer.jar
 ```
 
-Output: `out/WOTU_COCO69_Jeff.apk`, signed with the public Android debug key that
-uber-apk-signer embeds (so later rebuilds install as updates over it).
+Output: `out/WOTU_COCO69_Jeff.apk`, signed with the debug key built into uber-apk-signer. That is
+the same certificate the Coco build is signed with
+(SHA-256 `1E:08:A9:03:AE:F9:C3:A7:21:51:0B:64:EC:76:4D:01:D3:D0:94:EB:95:41:61:B6:25:44:EA:8F:18:7B:59:53`),
+and the package name and version (`com.GamerMind.Warriors_of_the_Universe_CocoV3`, 2.8.1 / 2008041)
+are unchanged. After signing, `build.py` compares the certificate with the input APK's and stops if
+they differ. To compare any two APKs: `python build/apksig.py old.apk new.apk`.
 
 `tests/emu_test.py` runs the injected code under Unicorn with a mocked engine (table registration,
-menu + select hooks, create, both combos, both skills, the special, destroy):
+menu + select hooks incl. the online select gating, create, both combos, both skills, the special,
+destroy):
 
 ```
 pip install unicorn
@@ -67,8 +75,11 @@ python tests/emu_test.py out/libyoyo.so out/gen/jeff.elf out/gen/engine.ld
 
 ## Notes
 
-* The APK is re-signed, so it cannot update over the existing install (different signature).
-  Use the mod's **Download Account Data** first, uninstall, install, then **Import Account Data**.
-* Built and checked statically + in emulation only; it has not been run on a phone yet.
-* Jeff is for offline / local modes: online opponents running a different build don't know him,
-  and an instant-KO special isn't fair against real players.
+* Same certificate, package and version as the Coco build, so it installs **as an update** over an
+  existing Coco install, with no uninstall, and the app's data is kept. Because the version code is
+  unchanged, the original Coco APK can also be installed back over it the same way.
+* Built and checked statically + in emulation only; it has not been run on a phone yet. Try the
+  update on one phone with a test account before sending it out.
+* Jeff is offline only. He doesn't appear in online/LAN character select: other players' games
+  don't have him, and an instant-KO special isn't fair against real players. Online play itself
+  is not changed.
