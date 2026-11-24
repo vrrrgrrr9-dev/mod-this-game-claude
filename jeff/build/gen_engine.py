@@ -1,4 +1,4 @@
-"""Resolve the engine symbols Jeff's code uses to absolute addresses inside libyoyo.so.
+"""Resolve the engine symbols the mod's code (Jeff, Scyther) uses to absolute addresses inside libyoyo.so.
 
 usage: gen_engine.py <libyoyo.so> <out engine.ld> <out engine_vars.h>
 The injected blob is linked at a fixed VA inside the same .so, so a branch or ADRP from the
@@ -37,6 +37,19 @@ FUNCS = {  # C name -> mangled engine symbol
     'F_ObjectSetSprite': '_Z17F_ObjectSetSpriteR6RValueP9CInstanceS2_iPS_',
     'F_DrawCircle': '_Z12F_DrawCircleR6RValueP9CInstanceS2_iPS_',
     'F_DrawLineWidth': '_Z15F_DrawLineWidthR6RValueP9CInstanceS2_iPS_',
+    # Scyther: camera / layers (the void stage), collisions (teleport), stretched sprites
+    'F_ViewGetCamera': '_Z15F_ViewGetCameraR6RValueP9CInstanceS2_iPS_',
+    'F_CameraGetViewX': '_Z16F_CameraGetViewXR6RValueP9CInstanceS2_iPS_',
+    'F_CameraGetViewY': '_Z16F_CameraGetViewYR6RValueP9CInstanceS2_iPS_',
+    'F_CameraGetViewWidth': '_Z20F_CameraGetViewWidthR6RValueP9CInstanceS2_iPS_',
+    'F_CameraGetViewHeight': '_Z21F_CameraGetViewHeightR6RValueP9CInstanceS2_iPS_',
+    'F_LayerGetAll': '_Z13F_LayerGetAllR6RValueP9CInstanceS2_iPS_',
+    'F_LayerGetAllElements': '_Z21F_LayerGetAllElementsR6RValueP9CInstanceS2_iPS_',
+    'F_LayerGetElementType': '_Z21F_LayerGetElementTypeR6RValueP9CInstanceS2_iPS_',
+    'F_LayerSetVisible': '_Z17F_LayerSetVisibleR6RValueP9CInstanceS2_iPS_',
+    'F_PlaceMeeting': '_Z14F_PlaceMeetingR6RValueP9CInstanceS2_iPS_',
+    'F_CollisionPoint': '_Z16F_CollisionPointR6RValueP9CInstanceS2_iPS_',
+    'F_DrawSpriteStretchedExt': '_Z24F_DrawSpriteStretchedExtR6RValueP9CInstanceS2_iPS_',
     'gml_Script_scr_plr_step': '_Z23gml_Script_scr_plr_stepP9CInstanceS0_R8YYRValueiPPS1_',
     'gml_Script_scr_combo_normal': '_Z27gml_Script_scr_combo_normalP9CInstanceS0_R8YYRValueiPPS1_',
     'gml_Script_scr_char_charge_effect': '_Z33gml_Script_scr_char_charge_effectP9CInstanceS0_R8YYRValueiPPS1_',
@@ -61,8 +74,8 @@ can_hit_fallen can_hurt delay_hit hit_effect hit_snd_miss charord char chars_num
 char_obj char_face char_shop_back char_unlocked char_bought char_stats_hp char_stats_dmg
 char_stats_speed char_stats_pwr char_stats_combat char_shop_price char_shop_level
 char_shop_needchar char_shop_cond char_shop_chall char_price camera_shake cd_immunity
-game_gm game_plrchar'''.split()
-FUNCIDS = ['display_get_gui_width', 'display_get_gui_height', 'instance_exists']
+game_gm game_plrchar image_angle room_width'''.split()
+FUNCIDS = ['display_get_gui_width', 'display_get_gui_height', 'instance_exists', 'array_length_1d']
 
 def main():
     so, ld_out, h_out = sys.argv[1:4]

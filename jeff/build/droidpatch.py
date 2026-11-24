@@ -1,34 +1,36 @@
-"""Add the o_jeff object (index 685, parent o_parent_character) to game.droid.
+"""Add the o_jeff (685) and o_scyther (686) objects (parent o_parent_character) to game.droid.
 
 usage: droidpatch.py <game.droid in> <game.droid out>
 
 GameMaker data files are full of absolute file offsets, so nothing is inserted in the middle:
-* the OBJT pointer list grows by one entry into the dead bytes the Coco mod left after it (the
-  old copy of object 0 that the mod relocated; verified unreferenced before writing);
-* the new object struct, its name and its event lists are appended at the end of the file
-  (inside the last chunk, AUDO, exactly where the mod put its own objects); FORM/AUDO sizes grow.
+* the OBJT pointer list grows by two entries into the dead bytes the Coco mod left after it (the
+  old copy of object 0 that the mod relocated; both slots verified unreferenced before writing);
+* the new object structs, names and event lists are appended at the end of the file (inside the
+  last chunk, AUDO, exactly where the mod put its own objects); FORM/AUDO sizes grow.
 
-Event CodeIds index the YYC function table: 0xe65.. are Jeff's functions appended by
-src/hooks.c (jeff_initllvm), the rest are reused original functions.
+Event CodeIds index the YYC function table: 0xe65.. are Jeff's and 0xe6d.. Scyther's functions
+appended by src/hooks.c (jeff_initllvm); the rest are reused original functions.
 """
 import struct, sys
 
 OBJ_PARENT_CHARACTER = 420
 OBJ_PARENT_SOLID = 425
-CODE = dict(create=0xe65, step=0xe66, draw=0xe67, draw64=0xe68, destroy=0xe69,
-            alarm0=0xe6a, alarm2=0xe6b, alarm3=0xe6c,
-            alarm4=3052,            # gml_Object_o_plr_erbitobkr_Alarm_4  (parent.can_attack = true)
-            solid=3057)             # gml_Object_o_plr_erbitobkr_Collision_o_parent_solid
-# event type -> [(subtype, code id)]   (0 create, 1 destroy, 2 alarm, 3 step, 4 collision, 8 draw)
-EVENTS = {
-    0: [(0, CODE['create'])],
-    1: [(0, CODE['destroy'])],
-    2: [(0, CODE['alarm0']), (2, CODE['alarm2']), (3, CODE['alarm3']), (4, CODE['alarm4'])],
-    3: [(0, CODE['step'])],
-    4: [(OBJ_PARENT_SOLID, CODE['solid'])],
-    8: [(0, CODE['draw']), (64, CODE['draw64'])],
-}
-NAME = 'o_jeff'
+ALARM4 = 3052               # gml_Object_o_plr_erbitobkr_Alarm_4  (parent.can_attack = true)
+SOLID = 3057                # gml_Object_o_plr_erbitobkr_Collision_o_parent_solid
+# event type -> [(subtype, code id)]  (0 create, 1 destroy, 2 alarm, 3 step, 4 collision, 8 draw:
+# subtype 0 = Draw, 64 = Draw GUI, 72 = Draw Begin)
+OBJECTS = [
+    ('o_jeff', {
+        0: [(0, 0xe65)], 1: [(0, 0xe69)],
+        2: [(0, 0xe6a), (2, 0xe6b), (3, 0xe6c), (4, ALARM4)],
+        3: [(0, 0xe66)], 4: [(OBJ_PARENT_SOLID, SOLID)],
+        8: [(0, 0xe67), (64, 0xe68)]}),
+    ('o_scyther', {
+        0: [(0, 0xe6d)], 1: [(0, 0xe72)],
+        2: [(0, 0xe73), (2, 0xe74), (3, 0xe75), (4, ALARM4)],
+        3: [(0, 0xe6e)], 4: [(OBJ_PARENT_SOLID, SOLID)],
+        8: [(0, 0xe6f), (64, 0xe70), (72, 0xe71)]}),
+]
 
 
 def u32(d, o): return struct.unpack_from('<I', d, o)[0]
@@ -52,14 +54,16 @@ def main():
     names = []
     for i in range(n):
         q = u32(d, objt + 4 + 4 * i); s = u32(d, q); names.append(d[s:s + u32(d, s - 4)].decode())
-    if NAME in names:
-        sys.exit('o_jeff already present')
+    for name, _ in OBJECTS:
+        if name in names:
+            sys.exit(f'{name} already present')
     assert n == 685 and names[OBJ_PARENT_CHARACTER] == 'o_parent_character', 'unexpected game.droid'
     list_end = objt + 4 + 4 * n
-    # the next 4 bytes must be unreferenced leftovers (no aligned u32 anywhere in the file points there)
+    # the next len(OBJECTS) slots must be unreferenced leftovers (no aligned u32 in the file points there)
     import array
     arr = array.array('I'); arr.frombytes(bytes(d[:len(d) // 4 * 4]))
-    assert arr.count(list_end) == 0, 'slot after the object list is referenced'
+    for k in range(len(OBJECTS)):
+        assert arr.count(list_end + 4 * k) == 0, f'slot {k} after the object list is referenced'
     # template: copy the physics block of o_green_nature (a working mod character)
     tpl = u32(d, objt + 4 + 4 * names.index('o_green_nature'))
     phys = d[tpl + 9 * 4: tpl + 21 * 4]            # usesPhysics .. kinematic (12 dwords)
@@ -73,42 +77,44 @@ def main():
 
     def put(fmt, *v): blob.extend(struct.pack(fmt, *v))
 
-    # name string: [len][bytes][0]; pointers point at the bytes
-    put('<I', len(NAME)); name_ptr = here(); blob.extend(NAME.encode() + b'\0')
-    while len(blob) % 4: blob.append(0)
+    objs = []
+    for name, events in OBJECTS:
+        # name string: [len][bytes][0]; pointers point at the bytes
+        put('<I', len(name)); name_ptr = here(); blob.extend(name.encode() + b'\0')
+        while len(blob) % 4: blob.append(0)
+        type_lists = {}
+        for etype, evs in events.items():
+            ev_ptrs = []
+            for sub, code in evs:
+                act = here()
+                put('<14i', 1, 603, 7, 0, 0, 0, 2, 0, code, 0, -1, 0, 0, 0)
+                ev = here()
+                put('<III', sub, 1, act)
+                ev_ptrs.append(ev)
+            lst = here()
+            put('<I', len(ev_ptrs)); [put('<I', p) for p in ev_ptrs]
+            type_lists[etype] = lst
+        for etype in range(15):
+            if etype not in type_lists:
+                type_lists[etype] = here(); put('<I', 0)
+        obj = here()
+        put('<I', name_ptr)
+        put('<iIIIiIiI', -1, 1, 1, 0, 0, 0, OBJ_PARENT_CHARACTER, 0xffffffff)   # sprite..mask
+        blob.extend(phys)
+        put('<I', 15); [put('<I', type_lists[t]) for t in range(15)]
+        objs.append(obj)
 
-    # actions + events first (so the object can point at them)
-    type_lists = {}
-    for etype, evs in EVENTS.items():
-        ev_ptrs = []
-        for sub, code in evs:
-            act = here()
-            put('<14i', 1, 603, 7, 0, 0, 0, 2, 0, code, 0, -1, 0, 0, 0)
-            ev = here()
-            put('<III', sub, 1, act)
-            ev_ptrs.append(ev)
-        lst = here()
-        put('<I', len(ev_ptrs)); [put('<I', p) for p in ev_ptrs]
-        type_lists[etype] = lst
-    for etype in range(15):
-        if etype not in type_lists:
-            type_lists[etype] = here(); put('<I', 0)
-
-    obj = here()
-    put('<I', name_ptr)
-    put('<iIIIiIiI', -1, 1, 1, 0, 0, 0, OBJ_PARENT_CHARACTER, 0xffffffff)   # sprite..mask
-    blob.extend(phys)
-    put('<I', 15); [put('<I', type_lists[t]) for t in range(15)]
-
-    # write: grow the pointer list into the dead slot, append blob, fix sizes
-    struct.pack_into('<I', d, objt, n + 1)
-    struct.pack_into('<I', d, list_end, obj)
+    # write: grow the pointer list into the dead slots, append blob, fix sizes
+    struct.pack_into('<I', d, objt, n + len(objs))
+    for k, obj in enumerate(objs):
+        struct.pack_into('<I', d, list_end + 4 * k, obj)
     d += b'\0' * (base - len(d))
     d += blob
     struct.pack_into('<I', d, audo - 4, len(d) - audo)
     struct.pack_into('<I', d, 4, len(d) - 8)
     open(dst, 'wb').write(d)
-    print(f'o_jeff = object {n} at {obj:#x}; events', {k: [hex(c) for _, c in v] for k, v in EVENTS.items()})
+    for k, (name, events) in enumerate(OBJECTS):
+        print(f'{name} = object {n + k} at {objs[k]:#x}; events', {t: [hex(c) for _, c in v] for t, v in events.items()})
 
 
 if __name__ == '__main__':

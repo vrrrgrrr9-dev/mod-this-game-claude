@@ -1,4 +1,4 @@
-"""Build the WOTU Coco mod + Jeff APK in one go.
+"""Build the WOTU Coco mod + Jeff + Black Holing Scyther APK in one go.
 
 usage:
   python build.py --apk WOTU_COCO69.apk --out <dir>
@@ -48,14 +48,16 @@ def get_apk(args, work):
     return path
 
 
-def build_native(work, libyoyo):
+def build_native(work, libyoyo, assets):
     gen = os.path.join(work, 'gen'); os.makedirs(gen, exist_ok=True)
     import manifest
     open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header())
+    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'manifest.py'), assets,
+         os.path.join(gen, 'scyther_assets.h')])
     run([sys.executable, '-I', os.path.join(HERE, 'gen_engine.py'), libyoyo,
          os.path.join(gen, 'engine.ld'), os.path.join(gen, 'engine_vars.h')])
     objs = []
-    for c in ('jeff.c', 'hooks.c', 'libc.c'):
+    for c in ('jeff.c', 'scyther.c', 'hooks.c', 'libc.c'):
         o = os.path.join(gen, c[:-2] + '.o')
         run(['clang'] + CFLAGS + ['-I', gen, '-I', SRC, '-c', os.path.join(SRC, c), '-o', o])
         objs.append(o)
@@ -82,6 +84,8 @@ def repack(src_apk, out_apk, replace, add_dir):
             zi.external_attr = info.external_attr
             zout.writestr(zi, data)
         for f in sorted(os.listdir(add_dir)):
+            if not f.endswith(('.png', '.ogg')):           # build metadata stays out of the APK
+                continue
             zi = zipfile.ZipInfo('assets/' + f, (2026, 11, 24, 0, 0, 0))
             zi.compress_type = zipfile.ZIP_STORED
             zout.writestr(zi, open(os.path.join(add_dir, f), 'rb').read())
@@ -104,8 +108,9 @@ def main():
     assets = os.path.join(work, 'assets')
     shutil.rmtree(assets, ignore_errors=True)
     run([sys.executable, '-I', os.path.join(ROOT, 'art', 'build_art.py'), assets])
+    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'build_art.py'), assets])
 
-    elf = build_native(work, lib_in)
+    elf = build_native(work, lib_in, assets)
     lib_out = os.path.join(work, 'libyoyo.so')
     droid_out = os.path.join(work, 'game.droid')
     run([sys.executable, '-I', os.path.join(HERE, 'elfpatch.py'), lib_in, elf, lib_out])

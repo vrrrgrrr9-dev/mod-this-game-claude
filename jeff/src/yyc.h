@@ -63,6 +63,18 @@ void F_InstanceExists(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_ObjectSetSprite(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_DrawCircle(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_DrawLineWidth(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_ViewGetCamera(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_CameraGetViewX(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_CameraGetViewY(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_CameraGetViewWidth(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_CameraGetViewHeight(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_LayerGetAll(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_LayerGetAllElements(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_LayerGetElementType(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_LayerSetVisible(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_PlaceMeeting(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_CollisionPoint(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_DrawSpriteStretchedExt(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 
 RValue *gml_Script_scr_plr_step(CInstance *s, CInstance *o, RValue *ret, int argc, RValue **args);
 RValue *gml_Script_scr_combo_normal(CInstance *s, CInstance *o, RValue *ret, int argc, RValue **args);
