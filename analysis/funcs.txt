@@ -1,0 +1,641 @@
+== 0x3000000 size=0x990 hookB:InitLLVM
+   strs: ['gml_Object_o_coco_Create_0', 'gml_Object_o_coco_Draw_64', 'gml_Object_o_coco_Step_0', 'gml_Object_o_coco_Draw_0', 'gml_Object_o_coco_Step_1', 'gml_Object_o_coco_Collision_o_tile_hit', 'gml_Object_o_coco_Destroy_0', 'gml_Object_o_coco_Step_2', 'gml_Object_o_coco_reality_slicer_Create_0', 'gml_Object_o_coco_reality_slicer_Step_0', 'gml_Object_o_coco_reality_slicer_Draw_0', 'gml_Object_o_coco_reality_slicer_Draw_64', 'gml_Object_o_coco_reality_slicer_Destroy_0', 'gml_Object_o_coco_reality_slicer_Step_1', 'gml_Object_o_coco_reality_slicer_Step_2', 'gml_Object_o_coco_reality_slicer_Collision_o_tile_hit', 'gml_Object_o_green_nature_Create_0', 'gml_Object_o_green_nature_Step_0', 'gml_Object_o_green_nature_Draw_0', 'gml_Object_o_green_nature_Destroy_0', 'gml_Object_o_green_nature_Alarm_0', 'gml_Object_o_green_nature_Alarm_2', 'gml_Object_o_green_nature_Alarm_3', 'gml_Object_o_green_nature_Alarm_4', 'gml_Object_o_solar_coco_Create_0', 'gml_Object_o_solar_coco_Step_0', 'gml_Object_o_solar_coco_Draw_0', 'gml_Object_o_solar_coco_Destroy_0', 'gml_Object_o_solar_coco_Alarm_0', 'gml_Object_o_solar_coco_Alarm_2', 'gml_Object_o_solar_coco_Alarm_3', 'gml_Object_o_solar_coco_Alarm_4', 'gml_Object_o_solar_coco_Draw_64', 'gml_Object_o_custom_b_effect3_Create_0', 'gml_Object_o_custom_b_effect4_Create_0', 'gml_Object_o_green_nature_Draw_64']
+== 0x3000990 size=0x5c0 
+== 0x3000f50 size=0x120 
+   calls: YYConstString
+== 0x3001070 size=0x120 
+   calls: YYConstString
+== 0x3001190 size=0x3d0 
+   calls: F_VariableGlobalExists, INT32_RValue, YYGML_CallLegacyFunction
+   strs: ['game_plrchar', 'ame_plrchar']
+== 0x3001560 size=0x20 
+   calls: YYGML_ini_write_real
+== 0x3001580 size=0x420 hookB:YYGML_ini_write_real
+   strs: ['player', 'layer', 'ayer', 'yer', 'money', 'oney', 'ney', 'level', 'evel', 'vel']
+== 0x30019a0 size=0x30 hookB:gml_Script_scr_plr_step
+== 0x30019d0 size=0x20 
+   calls: gml_Object_o_clownshop_item_Mouse_7
+== 0x30019f0 size=0x10 hookB:gml_Object_o_clownshop_item_Mouse_7
+== 0x3001a00 size=0x3c0 
+   calls: 0x30019d0
+   strs: ['player_level', 'player_money']
+== 0x3001dc0 size=0x20 
+   calls: gml_Object_o_custom_char_start_Mouse_7
+== 0x3001de0 size=0x10 hookB:gml_Object_o_custom_char_start_Mouse_7
+== 0x3001df0 size=0x20 
+   calls: gml_Object_o_custom_char_start_Other_63
+== 0x3001e10 size=0x10 hookB:gml_Object_o_custom_char_start_Other_63
+== 0x3001e20 size=0x20 
+   calls: gml_Object_o_custom_colour_palette_Mouse_7
+== 0x3001e40 size=0x10 hookB:gml_Object_o_custom_colour_palette_Mouse_7
+== 0x3001e50 size=0x20 
+   calls: gml_Object_o_custom_item_arms2_Mouse_7
+== 0x3001e70 size=0x10 hookB:gml_Object_o_custom_item_arms2_Mouse_7
+== 0x3001e80 size=0x20 
+   calls: gml_Object_o_custom_item_arms_Mouse_7
+== 0x3001ea0 size=0x10 hookB:gml_Object_o_custom_item_arms_Mouse_7
+== 0x3001eb0 size=0x20 
+   calls: gml_Object_o_custom_item_aura_Mouse_7
+== 0x3001ed0 size=0x10 hookB:gml_Object_o_custom_item_aura_Mouse_7
+== 0x3001ee0 size=0x20 
+   calls: gml_Object_o_custom_item_back_Mouse_7
+== 0x3001f00 size=0x10 hookB:gml_Object_o_custom_item_back_Mouse_7
+== 0x3001f10 size=0x20 
+   calls: gml_Object_o_custom_item_belt_Mouse_7
+== 0x3001f30 size=0x30 hookB:gml_Object_o_custom_item_belt_Mouse_7
+   calls: gml_Object_o_custom_item_body_Mouse_7
+== 0x3001f60 size=0x10 hookB:gml_Object_o_custom_item_body_Mouse_7
+== 0x3001f70 size=0x20 
+   calls: gml_Object_o_custom_item_bottom_Mouse_7
+== 0x3001f90 size=0x10 hookB:gml_Object_o_custom_item_bottom_Mouse_7
+== 0x3001fa0 size=0x20 
+   calls: gml_Object_o_custom_item_combo1_Mouse_7
+== 0x3001fc0 size=0x10 hookB:gml_Object_o_custom_item_combo1_Mouse_7
+== 0x3001fd0 size=0x20 
+   calls: gml_Object_o_custom_item_combo2_Mouse_7
+== 0x3001ff0 size=0x10 hookB:gml_Object_o_custom_item_combo2_Mouse_7
+== 0x3002000 size=0x20 
+   calls: gml_Object_o_custom_item_design_Mouse_7
+== 0x3002020 size=0x10 hookB:gml_Object_o_custom_item_design_Mouse_7
+== 0x3002030 size=0x20 
+   calls: gml_Object_o_custom_item_effect_Mouse_7
+== 0x3002050 size=0x10 hookB:gml_Object_o_custom_item_effect_Mouse_7
+== 0x3002060 size=0x20 
+   calls: gml_Object_o_custom_item_face_Mouse_7
+== 0x3002080 size=0x10 hookB:gml_Object_o_custom_item_face_Mouse_7
+== 0x3002090 size=0x20 
+   calls: gml_Object_o_custom_item_feet_Mouse_7
+== 0x30020b0 size=0x10 hookB:gml_Object_o_custom_item_feet_Mouse_7
+== 0x30020c0 size=0x20 
+   calls: gml_Object_o_custom_item_hair_Mouse_7
+== 0x30020e0 size=0x10 hookB:gml_Object_o_custom_item_hair_Mouse_7
+== 0x30020f0 size=0x20 
+   calls: gml_Object_o_custom_item_hat_Mouse_7
+== 0x3002110 size=0x10 hookB:gml_Object_o_custom_item_hat_Mouse_7
+== 0x3002120 size=0x20 
+   calls: gml_Object_o_custom_item_head_Mouse_7
+== 0x3002140 size=0x10 hookB:gml_Object_o_custom_item_head_Mouse_7
+== 0x3002150 size=0x20 
+   calls: gml_Object_o_custom_item_mask_Mouse_7
+== 0x3002170 size=0x10 hookB:gml_Object_o_custom_item_mask_Mouse_7
+== 0x3002180 size=0x20 
+   calls: gml_Object_o_custom_item_mouth_Mouse_7
+== 0x30021a0 size=0x10 hookB:gml_Object_o_custom_item_mouth_Mouse_7
+== 0x30021b0 size=0x20 
+   calls: gml_Object_o_custom_item_overall_Mouse_7
+== 0x30021d0 size=0x10 hookB:gml_Object_o_custom_item_overall_Mouse_7
+== 0x30021e0 size=0x20 
+   calls: gml_Object_o_custom_item_overtop_Mouse_7
+== 0x3002200 size=0x10 hookB:gml_Object_o_custom_item_overtop_Mouse_7
+== 0x3002210 size=0x20 
+   calls: gml_Object_o_custom_item_pose_Mouse_7
+== 0x3002230 size=0x10 hookB:gml_Object_o_custom_item_pose_Mouse_7
+== 0x3002240 size=0x20 
+   calls: gml_Object_o_custom_item_seccombo1_Mouse_7
+== 0x3002260 size=0x10 hookB:gml_Object_o_custom_item_seccombo1_Mouse_7
+== 0x3002270 size=0x20 
+   calls: gml_Object_o_custom_item_seccombo2_Mouse_7
+== 0x3002290 size=0x10 hookB:gml_Object_o_custom_item_seccombo2_Mouse_7
+== 0x30022a0 size=0x20 
+   calls: gml_Object_o_custom_item_skill1_Mouse_7
+== 0x30022c0 size=0x10 hookB:gml_Object_o_custom_item_skill1_Mouse_7
+== 0x30022d0 size=0x20 
+   calls: gml_Object_o_custom_item_skill2_Mouse_7
+== 0x30022f0 size=0x10 hookB:gml_Object_o_custom_item_skill2_Mouse_7
+== 0x3002300 size=0x20 
+   calls: gml_Object_o_custom_item_top_Mouse_7
+== 0x3002320 size=0x10 hookB:gml_Object_o_custom_item_top_Mouse_7
+== 0x3002330 size=0x20 
+   calls: gml_Object_o_custom_item_voice_Mouse_7
+== 0x3002350 size=0x10 hookB:gml_Object_o_custom_item_voice_Mouse_7
+== 0x3002360 size=0x20 
+   calls: gml_Object_o_custom_item_wp_Mouse_7
+== 0x3002380 size=0x30 hookB:gml_Object_o_custom_item_wp_Mouse_7
+   calls: gml_Object_o_customavatar_colour_Mouse_7
+== 0x30023b0 size=0x10 hookB:gml_Object_o_customavatar_colour_Mouse_7
+== 0x30023c0 size=0x20 
+   calls: gml_Object_o_menu_avatar_Mouse_7
+== 0x30023e0 size=0x30 hookB:gml_Object_o_menu_avatar_Mouse_7
+   calls: gml_Object_o_menu_custom_char_txt_money_Draw_0
+== 0x3002410 size=0x30 hookB:gml_Object_o_menu_custom_char_txt_money_Draw_0
+   calls: gml_Object_o_menu_player_stats_Draw_0
+== 0x3002440 size=0x10 hookB:gml_Object_o_menu_player_stats_Draw_0
+== 0x3002450 size=0x20 
+   calls: gml_Object_o_menu_selball_Mouse_4
+== 0x3002470 size=0x10 hookB:gml_Object_o_menu_selball_Mouse_4
+== 0x3002480 size=0x20 
+   calls: gml_Object_o_menu_shop_char_Alarm_0
+== 0x30024a0 size=0x30 hookB:gml_Object_o_menu_shop_char_Alarm_0
+   calls: gml_Object_o_menu_shop_char_Draw_0
+== 0x30024d0 size=0x10 hookB:gml_Object_o_menu_shop_char_Draw_0
+== 0x30024e0 size=0x20 
+   calls: gml_Object_o_menu_shop_char_Mouse_7
+== 0x3002500 size=0x10 hookB:gml_Object_o_menu_shop_char_Mouse_7
+== 0x3002510 size=0x20 
+   calls: gml_Object_o_shopchar_buy_Mouse_4
+== 0x3002530 size=0x30 hookB:gml_Object_o_shopchar_buy_Mouse_4
+   calls: gml_Object_o_shopchar_char_Mouse_4
+== 0x3002560 size=0x10 hookB:gml_Object_o_shopchar_char_Mouse_4
+== 0x3002570 size=0x20 
+   calls: gml_Object_o_shopmap_map_Mouse_7
+== 0x3002590 size=0x10 hookB:gml_Object_o_shopmap_map_Mouse_7
+== 0x30025a0 size=0x10 
+   calls: plt:YYGML_CallLegacyFunction
+== 0x30025b0 size=0x24 callBL:gml_Object_o_menu_player_stats_Draw_0
+== 0x30025d4 size=0x1ec 
+   calls: YYConstString
+   strs: ['Infinite']
+== 0x30027c0 size=0x24 callBL:gml_Object_o_menu_txt_itemsunlock_Draw_0
+== 0x30027e4 size=0x3c 
+   calls: plt:_ZN8YYRValuedVERKS_
+== 0x3002820 size=0x150 callBL:gml_Object_o_menu_player_stats_Draw_0
+   calls: _ZN8YYRValueaSERKS_
+== 0x3002970 size=0x10 
+   calls: gml_Script_scr_collision_hitmask
+== 0x3002980 size=0x1d0 hookB:gml_Script_scr_collision_hitmask
+   calls: INT32_RValue, _ZN8YYRValueaSERKS_
+   strs: ['parent']
+== 0x3002b50 size=0x230 
+   calls: YYConstString, F_VariableInstanceExists, INT32_RValue, F_VariableInstanceGet
+== 0x3002d80 size=0x2e0 
+   calls: INT32_RValuex4, F_InstanceNumber
+   strs: ['plr_controller', 'plr_num']
+== 0x3003060 size=0xf0 
+   calls: _ZN8YYRValueaSERKS_
+== 0x3003150 size=0x10 callBL:gml_Object_o_parent_character_Collision_o_tile_hit
+== 0x3003160 size=0x10 
+   calls: plt:_ZN8YYRValuemIERKS_
+== 0x3003170 size=0x360 
+   calls: F_InstanceNumber, INT32_RValue
+   strs: ['obj_parent']
+== 0x30034d0 size=0x220 
+   calls: INT32_RValuex2
+   strs: ['plr_controller', 'plr_num']
+== 0x30036f0 size=0x20 callBL:gml_Script_scr_collision_hitmask
+== 0x3003710 size=0x20 callBL:gml_Object_o_parent_character_Collision_o_tile_hit callBL:gml_Object_o_tile_teleport_Collision_o_parent_character
+== 0x3003730 size=0x20 callBL:gml_Object_o_adventure_control_s1a7_Step_0
+== 0x3003750 size=0x10 
+   calls: plt:BOOL_RValue
+== 0x3003760 size=0xa0 
+== 0x3003800 size=0x10 callBL:gml_Script_scr_plr_step
+== 0x3003810 size=0x10 
+   calls: plt:_ZgtRK8YYRValuei
+== 0x3003820 size=0xa0 
+== 0x30038c0 size=0x10 callBL:gml_Script_scr_plr_step
+== 0x30038d0 size=0x10 
+   calls: plt:_ZleRK8YYRValuei
+== 0x30038e0 size=0xa0 
+== 0x3003980 size=0x10 callBL:gml_Script_scr_plr_step
+== 0x3003990 size=0x10 callBL:gml_Object_o_parent_character_Step_2
+== 0x30039a0 size=0x4b0 
+   calls: INT32_RValuex4, F_SpriteExistsx2, Variable_GetBuiltIn_Directx2, Variable_BuiltIn_Find, _ZN8YYRValueaSERKS_
+   strs: ['char_hitmask_height', 'char_hitmask_width']
+== 0x3003e50 size=0x10 callBL:gml_Object_o_parent_character_Step_2
+== 0x3003e60 size=0xc0 callBL:gml_Object_o_control_online_Step_1
+   calls: YYGML_keyboard_check
+== 0x3003f20 size=0x360 hookB:gml_Object_o_control_keys_onlinep1_Step_0
+   calls: _ZN8YYRValueaSERKS_x9
+   strs: ['nonline']
+== 0x3004280 size=0x20 
+   calls: gml_Object_o_control_keys_onlinep1_Step_0
+== 0x30042a0 size=0x280 
+   calls: INT32_RValuex2, YYConstString, F_VariableGlobalExists
+== 0x3004520 size=0x310 event:gml_Object_o_coco_Step_2 event:gml_Object_o_coco_reality_slicer_Step_2
+   calls: INT32_RValuex2, YYGML_FindInstance, gml_Script_scr_plr_controls, gml_Script_scr_keys_press_release, F_InstanceNumber, gml_Script_scr_send_char_data
+   strs: ['nonline']
+== 0x3004830 size=0x1070 event:gml_Object_o_coco_Create_0
+   calls: _ZN8YYRValueaSERKS_x27, Variable_SetBuiltIn_Directx6, Variable_GetBuiltIn_Directx3, INT32_RValuex3, gml_Object_o_parent_character_Create_0, YYConstString
+   strs: ['Coco']
+== 0x30058a0 size=0x960 
+   calls: INT32_RValuex4, F_AudioCreateStreamx2, YYConstStringx2, F_ObjectSetSpritex2, Variable_BuiltIn_Find, F_SpriteAdd
+   strs: ['coco_idle.png', 'oco_idle.png', 'coco_strike.ogg', 'oco_strike.ogg', 'coco_reality_idle.png', 'oco_reality_idle.png', 'coco_reality_cut.ogg', 'oco_reality_cut.ogg']
+== 0x3006200 size=0x250 
+== 0x3006450 size=0xd0 
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x3006520 size=0x400 
+   calls: _ZN8YYRValueaSERKS_x3, Variable_GetBuiltIn_Direct, INT32_RValue, YYConstString, F_VariableInstanceSet
+   strs: ['parent', 'points_spd']
+== 0x3006920 size=0x340 
+   calls: _ZN8YYRValueaSERKS_x7
+== 0x3006c60 size=0xc0 event:gml_Object_o_coco_Destroy_0 event:gml_Object_o_coco_reality_slicer_Destroy_0
+== 0x3006d20 size=0x6740 event:gml_Object_o_coco_Step_0 event:gml_Object_o_coco_reality_slicer_Step_0
+   calls: -0x215cb71x22, INT32_RValuex18, -0x215b4b8x18, Variable_SetBuiltIn_Directx11, BZ2_decompress+0x2b7cx6, F_PlaceMeetingx5, -0x22feeadx5, BN_mask_bits+0x118x5, Variable_GetBuiltIn_Directx4, -0x21651f4x4, YYConstStringx4, F_VariableInstanceSetx4, -0x2140d11x3, -0x22c0f89x3, -0x21651b8x2, -0x22f8a9cx2, -0x21668adx2, -0x2294154, _ZN8YYRValueaSERKS_, png_init_read_transformations+0x8b8
+   strs: ['plr_controller', 'plr_num', 'key_left', 'key_right', 'key_up', 'key_down', 'keyp_action1', 'keyp_action2', 'keyp_special', 'key_defend', 'key_charge', 'is_defending', 'plr_variant', 'is_hurt', 'is_fallen', 'is_transforming', 'is_attacking', 'is_airattacking', 'is_onair', 'can_attack', 'plr_team']
+== 0x300d460 size=0x340 
+   calls: INT32_RValuex3, YYConstString, F_VariableInstanceExists
+   strs: ['is_dead', 'plr_hp']
+== 0x300d7a0 size=0x260 
+   calls: YYConstString, F_VariableInstanceSet
+   strs: ['is_attacking']
+== 0x300da00 size=0x1a0 
+   calls: F_AudioPlaySound
+== 0x300dba0 size=0x890 
+   calls: INT32_RValuex8, F_InstanceNumber, F_InstanceFind, F_AudioPlaySound
+   strs: ['plr_hp']
+== 0x300e430 size=0x310 
+   calls: INT32_RValuex2, F_PlaceMeeting
+== 0x300e740 size=0x80 
+   calls: INT32_RValue
+== 0x300e7c0 size=0x1a0 
+   calls: YYConstString, F_VariableInstanceSet
+== 0x300e960 size=0xe80 
+   calls: INT32_RValuex10, YYGML_CallLegacyFunctionx3, YYConstStringx2, F_InstanceNumber, F_VariableInstanceSet, F_VariableGlobalExists, YYGML_Variable_SetValue
+   strs: ['key_charge', 'key_defend', 'key_left', 'key_right', 'key_down', 'key_up', 'plr_variant', 'plr_num', 'game_plrvariant']
+== 0x300f7e0 size=0xf0 
+   calls: F_PlaceMeeting, INT32_RValue
+== 0x300f8d0 size=0x4f0 
+   calls: INT32_RValuex7, F_InstanceNumber
+   strs: ['key_down', 'is_crouching', 'key_defend', 'key_charge', 'key_up', 'plr_controller', 'plr_num']
+== 0x300fdc0 size=0x410 
+   calls: INT32_RValuex5, YYGML_FindInstance
+   strs: ['plr_energy', 'can_move', 'is_transforming', 'is_attacking', 'is_defending']
+== 0x30101d0 size=0x18 
+== 0x30101e8 size=0x1d8 
+   calls: INT32_RValue, F_InstanceNumber
+   strs: ['plr_controller', 'plr_num']
+== 0x30103c0 size=0x30 
+== 0x30103f0 size=0x420 
+   calls: INT32_RValue, YYConstString, F_VariableInstanceSet
+   strs: ['plr_energy']
+== 0x3010810 size=0x20 
+== 0x3010830 size=0x28 
+== 0x3010858 size=0x1e8 
+   calls: INT32_RValue, F_InstanceNumber
+   strs: ['plr_controller', 'plr_num']
+== 0x3010a40 size=0x7b0 
+== 0x30111f0 size=0x170 
+   strs: ['can_move', 'is_transforming', 'keyp_right', 'keyp_left']
+== 0x3011360 size=0xa0 
+== 0x3011400 size=0x2028 event:gml_Object_o_coco_Draw_0 event:gml_Object_o_coco_reality_slicer_Draw_0
+   calls: F_DrawSpriteExtx20, F_GPUGetTexFilter, F_GPUSetTexFilter
+== 0x3013428 size=0x4e48 
+   calls: F_DrawSpriteExtx27, F_DrawSetAlphax14, F_DrawSetColorx11, F_DrawLineWidthx7, F_GPUSetBlendModex6, -0x22e7fc5x4, -0x15e2e44x3, 0x3d0efe4x3, F_DrawCircle, F_DrawRectangle, F_GPUSetTexFilter
+== 0x3018270 size=0xe00 
+   calls: F_DrawSpriteExtx6
+== 0x3019070 size=0x1dc 
+== 0x301924c size=0x3c 
+== 0x3019288 size=0x388 
+== 0x3019610 size=0x920 
+   calls: F_DrawSpriteExtx2
+== 0x3019f30 size=0x160 
+   calls: F_DrawSetColor, F_DrawSetAlpha, F_DrawRectangle
+== 0x301a090 size=0xaa0 event:gml_Object_o_coco_Draw_64 event:gml_Object_o_coco_reality_slicer_Draw_64
+   calls: F_DrawSetColorx5, F_DrawSetAlphax5, F_DrawRectanglex4, YYGML_CallLegacyFunctionx2, INT32_RValuex2, F_GPUSetTexFilterx2, F_DrawGetColor, F_DrawGetAlpha, F_GPUGetTexFilter, F_DrawSpriteExt
+== 0x301ab30 size=0x330 
+   calls: F_DrawSpriteExtx3
+== 0x301ae60 size=0x10 
+   calls: plt:BOOL_RValue
+== 0x301ae70 size=0x2f0 
+   calls: INT32_RValuex4, YYGML_Variable_GetValue
+   strs: ['is_attacking', 'is_airattacking', 'is_transforming', 'is_dead']
+== 0x301b160 size=0x90 
+   calls: YYGML_Variable_GetValue
+== 0x301b1f0 size=0x10 callBL:gml_Script_scr_plr_step
+== 0x301b200 size=0x770 event:gml_Object_o_coco_reality_slicer_Create_0
+   calls: _ZN8YYRValueaSERKS_x12, YYConstString, Variable_SetBuiltIn_Direct
+   strs: ['Coco Reality Slicer']
+== 0x301b970 size=0xcb0 event:gml_Object_o_green_nature_Create_0
+   calls: _ZN8YYRValueaSERKS_x20, Variable_SetBuiltIn_Directx3, YYConstStringx2, F_AudioCreateStream, gml_Object_o_parent_character_Create_0, YYGML_Variable_SetValue
+   strs: ['green_peck.ogg', 'reen_peck.ogg', 'Green nature']
+== 0x301c620 size=0x420 
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x301ca40 size=0x4f0 event:gml_Object_o_green_nature_Alarm_0
+   calls: YYConstStringx2, F_VariableInstanceSetx2, INT32_RValue
+   strs: ['spr_face', 'points_spd']
+== 0x301cf30 size=0x410 event:gml_Object_o_green_nature_Alarm_2
+   calls: INT32_RValuex3, Variable_GetBuiltIn_Direct
+   strs: ['is_onair', 'can_move']
+== 0x301d340 size=0x290 
+   calls: INT32_RValuex5
+   strs: ['plr_hp', 'is_dead', 'is_hurt', 'is_fallen', 'is_transforming']
+== 0x301d5d0 size=0xe20 
+   calls: Variable_SetBuiltIn_Directx5, YYConstStringx4, F_VariableInstanceSetx4, Variable_GetBuiltIn_Directx3, INT32_RValuex3, YYGML_Variable_SetValuex2, _ZN8YYRValueaSERKS_x2, F_AudioPlaySound
+   strs: ['is_attacking', 'can_attack', 'can_loopspr', 'is_airattacking']
+== 0x301e3f0 size=0xbb0 
+   calls: YYConstStringx4, F_VariableInstanceSetx4, INT32_RValuex4, _ZN8YYRValueaSERKS_x2, YYGML_Variable_SetValuex2, Variable_SetBuiltIn_Direct
+   strs: ['is_attacking', 'is_airattacking', 'is_hurt', 'is_fallen', 'plr_hp', 'is_dead', 'can_attack', 'can_loopspr']
+== 0x301efa0 size=0x5c0 event:gml_Object_o_green_nature_Alarm_4
+   calls: INT32_RValuex4, Variable_GetBuiltIn_Direct, YYConstString, F_VariableInstanceSet
+   strs: ['is_hurt', 'is_fallen', 'can_attack']
+== 0x301f560 size=0x840 event:gml_Object_o_green_nature_Alarm_3
+   calls: INT32_RValuex7, Variable_GetBuiltIn_Direct, YYConstString, F_VariableInstanceSet
+   strs: ['is_hurt', 'is_fallen', 'key_charge', 'plr_energy']
+== 0x301fda0 size=0xb0 
+   calls: INT32_RValue
+== 0x301fe50 size=0x70 
+   calls: INT32_RValue
+== 0x301fec0 size=0x860 event:gml_Object_o_green_nature_Draw_64
+   calls: INT32_RValuex3, YYGML_CallLegacyFunctionx2, F_DrawSetColorx2, F_DrawSetAlphax2, Variable_GetBuiltIn_Direct, F_GPUGetTexFilter, F_GPUSetTexFilter, F_DrawSpriteExt, F_DrawGetColor, F_DrawGetAlpha, F_DrawRectangle
+== 0x3020720 size=0x2cf4 event:gml_Object_o_green_nature_Step_0
+   calls: INT32_RValuex25, YYConstStringx6, F_VariableInstanceSetx6, Variable_SetBuiltIn_Directx5, YYGML_Variable_SetValuex2, gml_Script_scr_plr_stepx2, _ZN15CPhysicsFixture21CheckPolygonIntegrityEv+0x3cx2, _ZN5CRoom20AddInstanceToStorageEffix2, Variable_GetBuiltIn_Direct, F_AudioPlaySound, YYGML_FindInstance, _ZN8YYRValueaSERKS_, F_CollisionLine
+   strs: ['plr_hp', 'is_dead', 'is_hurt', 'is_fallen', 'keyp_special', 'plr_energy', 'can_move', 'is_onair', 'is_attacking', 'can_attack', 'can_loopspr', 'is_defending', 'key_down', 'is_crouching', 'keyp_action2', 'keyp_action1']
+== 0x3023414 size=0x386c 
+   calls: _ZN5CRoom20AddInstanceToStorageEffix4
+   strs: ['is_onair', 'can_move', 'plr_energy']
+== 0x3026c80 size=0xf20 
+   calls: INT32_RValuex8, F_InstanceFind
+   strs: ['plr_team', 'parent', 'plr_hp']
+== 0x3027ba0 size=0x5b0 
+   calls: INT32_RValuex4, YYConstStringx2, F_VariableInstanceSet
+   strs: ['cd_is_hurt', 'cd_recover', 'is_fallen', 'is_hurt']
+== 0x3028150 size=0x290 
+   calls: INT32_RValuex5
+   strs: ['key_charge', 'is_charging', 'can_move', 'is_onair', 'key_defend']
+== 0x30283e0 size=0x24b0 event:gml_Object_o_green_nature_Draw_0
+   calls: F_DrawSpriteExtx15, Variable_GetBuiltIn_Directx8, INT32_RValuex7, F_GPUSetTexFilterx2, F_GPUGetTexFilter
+== 0x302a890 size=0x700 
+   calls: F_DrawSpriteExtx4
+== 0x302af90 size=0x2a0 event:gml_Object_o_green_nature_Destroy_0
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue, gml_Object_o_parent_character_Destroy_0
+== 0x302b230 size=0xcd0 event:gml_Object_o_solar_coco_Create_0
+   calls: _ZN8YYRValueaSERKS_x20, Variable_SetBuiltIn_Directx3, YYConstStringx2, F_AudioCreateStream, gml_Object_o_parent_character_Create_0, YYGML_Variable_SetValue
+   strs: ['solar_slash.ogg', 'olar_slash.ogg', 'Solar Coco']
+== 0x302bf00 size=0x340 
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x302c240 size=0x4f0 event:gml_Object_o_solar_coco_Alarm_0
+   calls: YYConstStringx2, F_VariableInstanceSetx2, INT32_RValue
+   strs: ['spr_face', 'points_spd']
+== 0x302c730 size=0x3d0 event:gml_Object_o_solar_coco_Alarm_2
+   calls: INT32_RValuex2, Variable_GetBuiltIn_Direct
+   strs: ['is_onair', 'can_move']
+== 0x302cb00 size=0xce0 
+   calls: Variable_SetBuiltIn_Directx5, YYConstStringx4, F_VariableInstanceSetx4, YYGML_Variable_SetValuex2, _ZN8YYRValueaSERKS_x2, Variable_GetBuiltIn_Direct, INT32_RValue, F_AudioPlaySound
+   strs: ['is_attacking', 'can_attack', 'can_loopspr', 'is_airattacking']
+== 0x302d7e0 size=0x9d0 
+   calls: YYConstStringx4, F_VariableInstanceSetx4, _ZN8YYRValueaSERKS_x2, YYGML_Variable_SetValuex2, Variable_SetBuiltIn_Direct
+   strs: ['is_attacking', 'is_airattacking', 'can_attack', 'can_loopspr']
+== 0x302e1b0 size=0x350 event:gml_Object_o_solar_coco_Alarm_4
+   calls: INT32_RValuex2, YYConstString, F_VariableInstanceSet
+   strs: ['is_attacking', 'can_attack']
+== 0x302e500 size=0x4a0 event:gml_Object_o_solar_coco_Alarm_3
+   calls: INT32_RValuex3, Variable_GetBuiltIn_Direct
+== 0x302e9a0 size=0x14 
+== 0x302e9b4 size=0x37c 
+   calls: Variable_GetBuiltIn_Directx3, INT32_RValuex3, F_AudioPlaySound
+== 0x302ed30 size=0x2170 event:gml_Object_o_solar_coco_Step_0
+   calls: INT32_RValuex24, Variable_SetBuiltIn_Directx4, Variable_GetBuiltIn_Directx3, YYConstStringx3, F_VariableInstanceSetx3, YYGML_Variable_SetValuex2, gml_Script_scr_plr_stepx2, YYGML_FindInstance
+   strs: ['plr_hp', 'is_dead', 'is_hurt', 'is_fallen', 'keyp_special', 'is_onair', 'can_move', 'plr_energy', 'keyp_action2', 'is_defending', 'plr_maxenergy', 'keyp_action1']
+== 0x3030ea0 size=0x360 
+== 0x3031200 size=0x8f0 
+   calls: INT32_RValuex4, Variable_GetBuiltIn_Directx4, -0x12b9ae0x4, -0x12c37e0x3, YYGML_Variable_GetValue, -0x12c381c, -0x101a25c, -0x12c2368, -0x1887724, -0x12c2b2c
+   strs: ['plr_dmg']
+== 0x3031af0 size=0x90 
+== 0x3031b80 size=0x290 
+== 0x3031e10 size=0x4540 event:gml_Object_o_solar_coco_Draw_0
+   calls: F_DrawSpriteExtx35, Variable_GetBuiltIn_Directx8, INT32_RValuex8, F_GPUSetTexFilterx2, F_GPUGetTexFilter
+== 0x3036350 size=0xea0 event:gml_Object_o_solar_coco_Draw_64
+   calls: F_DrawSetAlphax4, INT32_RValuex3, F_DrawSetColorx3, F_DrawRectanglex3, YYGML_CallLegacyFunctionx2, -0x15d8f58x2, Variable_GetBuiltIn_Direct, F_DrawGetColor, F_DrawGetAlpha, F_GPUGetTexFilter, F_GPUSetTexFilter, -0x15e26c0, -0x15e26a4, -0x15e1f20, -0x1607980
+== 0x30371f0 size=0x2a0 event:gml_Object_o_solar_coco_Destroy_0
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue, gml_Object_o_parent_character_Destroy_0
+== 0x3037490 size=0x1c0 hookB:gml_Script_scr_statpoints_add
+   calls: Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x3037650 size=0x20 
+   calls: gml_Script_scr_statpoints_add
+== 0x3037670 size=0x1c0 hookB:gml_Script_scr_statpoints_remove
+   calls: Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x3037830 size=0x20 
+   calls: gml_Script_scr_statpoints_remove
+== 0x3037850 size=0x30 hookB:gml_Object_o_plr_custom_Alarm_0
+== 0x3037880 size=0x20 
+   calls: gml_Object_o_plr_custom_Alarm_0
+== 0x30378a0 size=0x2510 
+   calls: -0x215cb71x18, -0x2140d11x10, -0x22c0f89x10, Variable_GetBuiltIn_Directx2, INT32_RValuex2, -0x272a7b5x2, Variable_BuiltIn_Find, F_VariableInstanceSet, _ZN8YYRValueaSERKS_, -0x21498f9
+   strs: ['cost', 'coco_profile_spd', 'coco_profile_dmg', 'coco_profile_hp', 'rgy_skill1_cost', 'oco_profile_hp', 'plr_maxhp', 'plr_hp', 'coco_hp_bonus', 'coco_dmg_bonus', 'coco_speed_bonus', 'plr_dmg', 'coco_hp_base', 'coco_dmg_base', 'coco_walk_base', 'coco_run_base']
+== 0x3039db0 size=0x30 hookB:gml_Object_o_plr_custom_Step_0
+== 0x3039de0 size=0x20 
+   calls: gml_Object_o_plr_custom_Step_0
+== 0x3039e00 size=0xf0 hookB:gml_Object_o_player_control_Alarm_11
+   calls: INT32_RValue, YYGML_FindInstance
+== 0x3039ef0 size=0x20 
+   calls: gml_Object_o_player_control_Alarm_11
+== 0x3039f10 size=0x4a0 hookB:gml_Object_o_player_control_Alarm_3
+   calls: INT32_RValuex7, YYGML_FindInstancex2, Variable_BuiltIn_Find, _ZN8YYRValueaSERKS_
+   strs: ['coco_hp_bonus']
+== 0x303a3b0 size=0x20 
+   calls: gml_Object_o_player_control_Alarm_3
+== 0x303a3d0 size=0x70 
+   calls: YYGML_CallLegacyFunction
+== 0x303a440 size=0x870 hookB:gml_Object_o_custom_item_stats_Mouse_7
+   calls: YYConstStringx3, F_VariableInstanceSetx3, INT32_RValuex2, Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, F_InstanceFind
+   strs: ['temp_points_dmg', 'temp_points_hp', 'temp_points_spd']
+== 0x303acb0 size=0x2a0 
+   calls: Variable_GetBuiltIn_Direct, INT32_RValue
+== 0x303af50 size=0x2c0 
+   calls: INT32_RValuex2, F_InstanceFind, YYConstString, F_VariableInstanceSet
+   strs: ['temp_points_hp', 'temp_points_spd', 'temp_points_dmg', 'emp_points_dmg']
+== 0x303b210 size=0x20 
+   calls: gml_Object_o_custom_item_stats_Mouse_7
+== 0x303b230 size=0x300 
+   calls: INT32_RValue, YYConstString, F_VariableInstanceGet, FREE_RValue__Pre, _ZN8YYRValueaSERKS_
+   strs: ['energy_skill2_cost', 'energy_skill1_cost', 'nergy_skill1_cost']
+== 0x303b530 size=0x60 
+== 0x303b590 size=0x10 callBL:gml_Object_o_player_control_Draw_64
+== 0x303b5a0 size=0x4a0 
+   calls: Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct
+   strs: ['plr_controller', 'plr_num', 'is_dead', 'plr_maxenergy', 'plr_energy']
+== 0x303ba40 size=0x1e0 
+   calls: YYConstString, F_VariableInstanceExists, INT32_RValue
+== 0x303bc20 size=0x50 hookB:gml_Object_o_player_control_Step_0
+== 0x303bc70 size=0x3a0 
+   calls: INT32_RValuex2, F_InstanceNumber, Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, _ZN8YYRValueaSERKS_
+   strs: ['plr_controller', 'plr_num', 'is_dead', 'plr_maxhp', 'plr_hp']
+== 0x303c010 size=0x20 
+   calls: gml_Object_o_player_control_Step_0
+== 0x303c030 size=0x30 hookB:gml_Object_o_player_control_Step_2
+== 0x303c060 size=0x20 
+   calls: gml_Object_o_player_control_Step_2
+== 0x303c080 size=0x20 
+   calls: gml_Object_o_menu_config_lang_Draw_0
+== 0x303c0a0 size=0x20 
+   calls: gml_Object_o_menu_config_menu_Draw_0
+== 0x303c0c0 size=0x20 
+   calls: gml_Object_o_hud_pause_Draw_64
+== 0x303c0e0 size=0x2f0 hookB:gml_Object_o_menu_config_lang_Draw_0
+   calls: Variable_GetBuiltIn_Directx3, INT32_RValuex2, Variable_BuiltIn_Find
+   strs: ['Download Account Data', 'Import Account Data', 'Profile Media']
+== 0x303c3d0 size=0xcb0 
+   calls: INT32_RValuex5, F_DrawSetColorx4, F_DrawSetAlphax4, F_DrawRectanglex2, F_DrawSetHAlignx2, F_DrawSetVAlignx2, YYGML_CallLegacyFunctionx2, F_DrawGetHAlign, F_DrawGetVAlign, F_DrawGetColor, F_DrawGetAlpha, YYConstString, F_StringWidth, F_DrawTextTransformed, F_YoYo_MouseCheckButtonPressed
+   strs: ['menu_variation']
+== 0x303d080 size=0x270 hookB:gml_Object_o_menu_config_menu_Draw_0
+   calls: Variable_GetBuiltIn_Directx3, INT32_RValuex2, Variable_BuiltIn_Find
+   strs: ['Cheats']
+== 0x303d2f0 size=0x380 hookB:gml_Object_o_hud_pause_Draw_64
+   calls: INT32_RValuex3, Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, YYGML_Variable_GetValue, YYGML_CallLegacyFunction
+   strs: ['menuspr_button1', 'Cheats']
+== 0x303d670 size=0x220 
+   calls: YYConstString, F_VariableGlobalExists, INT32_RValue
+== 0x303d890 size=0x10 
+   calls: gml_Object_o_custom_item_effect2_Draw_0
+== 0x303d8a0 size=0x120 hookB:gml_Object_o_custom_item_effect2_Draw_0
+   calls: _ZN8YYRValueaSERKS_x2
+== 0x303d9c0 size=0x3e0 
+   calls: INT32_RValuex5, F_InstanceFindx2, _ZN8YYRValueaSERKS_x2
+   strs: ['selected']
+== 0x303dda0 size=0x280 
+   calls: INT32_RValuex2, _ZN8YYRValueaSERKS_x2
+== 0x303e020 size=0x10 
+   calls: gml_Object_o_custom_char_plr_Draw_0
+== 0x303e030 size=0x120 hookB:gml_Object_o_custom_char_plr_Draw_0
+   calls: _ZN8YYRValueaSERKS_x2
+== 0x303e150 size=0x10 
+   calls: gml_Object_o_custom_item_effect2_Mouse_7
+== 0x303e160 size=0x60 hookB:gml_Object_o_custom_item_effect2_Mouse_7
+== 0x303e1c0 size=0x10 
+   calls: gml_Object_o_custom_spawn_buttons_Create_0
+== 0x303e1d0 size=0x30 hookB:gml_Object_o_custom_spawn_buttons_Create_0
+== 0x303e200 size=0x10 
+   calls: plt:gml_Script_instance_create
+== 0x303e210 size=0x240 callBL:gml_Object_o_custom_spawn_buttons_Create_0
+   calls: INT32_RValuex2
+== 0x303e450 size=0x2e0 event:gml_Object_o_custom_b_effect3_Create_0 event:gml_Object_o_custom_b_effect4_Create_0
+   calls: gml_Object_o_custom_b_effect2_Create_0, Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, INT32_RValue, YYConstString, _ZN8YYRValueaSERKS_
+   strs: ['Effect 4', 'Effect 3', 'ffect 3']
+== 0x303e730 size=0x10 
+   calls: gml_Script_scr_custom_char_assign
+== 0x303e740 size=0x10 
+   calls: plt:gml_Script_scr_custom_effect
+== 0x303e750 size=0x10 
+   calls: plt:gml_Script_scr_custom_char_content
+== 0x303e760 size=0x80 callBL:gml_Object_o_custom_colour_palette_Mouse_7 callBL:gml_Object_o_custom_lastcol_Mouse_7
+== 0x303e7e0 size=0xa0 callBL:gml_Object_o_custom_b_save_Mouse_7
+   calls: YYGML_CallLegacyFunction
+== 0x303e880 size=0x4d0 
+   calls: INT32_RValuex2, F_InstanceFind, YYConstString, F_VariableInstanceExists, F_VariableInstanceGet, YYGML_FindInstance
+   strs: ['char_ind']
+== 0x303ed50 size=0x540 
+   calls: 0x1b90e90x2, 0x1b935a0, 0x1b935b0, 0x1ba4aa0, INT32_RValue
+   strs: ['/coco_creator_sl', 'ots.dat', 'ots.tmp', 'CLS2', 'menu_variation']
+== 0x303f290 size=0xf0 callBL:gml_Object_o_custom_b_delete_Alarm_0
+   calls: YYGML_CallLegacyFunction
+== 0x303f380 size=0x450 hookB:gml_Script_scr_custom_char_assign
+   calls: INT32_RValuex2, F_InstanceNumber, YYConstString, F_VariableInstanceSet
+   strs: ['coco_slots_form']
+== 0x303f7d0 size=0xd80 
+   calls: 0x1b935c0x5, 0x1b935b0x2, 0x1b935a0
+   strs: ['ots.dat', '/coco_creator_sl']
+== 0x3040550 size=0xb40 callBL:gml_Object_o_plr_custom_Draw_0
+   calls: INT32_RValuex7, 0x5fd8d564cx3, F_InstanceNumber, Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct, YYGML_CallLegacyFunction, YYGML_Variable_GetValue, 0x5fde9a244
+   strs: ['coco_slots_form', 'plr_num']
+== 0x3041090 size=0x10 
+   calls: gml_Object_o_plr_custom_Draw_0
+== 0x30410a0 size=0x1e0 hookB:gml_Object_o_plr_custom_Draw_0
+   calls: F_Shader_Currentx2, INT32_RValuex2, F_Shader_Reset, plt:YYGML_draw_sprite_ext
+== 0x3041280 size=0xd0 callBL:gml_Object_o_menu_player_stats_Draw_0
+== 0x3041350 size=0x550 
+   calls: INT32_RValuex2, F_SpriteDelete, YYConstString, F_FileExists, F_SpriteAdd, F_DrawSpriteStretchedExt
+   strs: ['coco_profile_photo.png']
+== 0x30418a0 size=0x10 
+   calls: plt:gml_Script_scr_draw_avatar_custom
+== 0x30418b0 size=0x170 callBL:gml_Object_o_menu_player_stats_Draw_0
+   calls: INT32_RValuex2
+== 0x3041a20 size=0x10 
+   calls: gml_Object_o_menu_change_avatar_Draw_0
+== 0x3041a30 size=0x150 hookB:gml_Object_o_menu_change_avatar_Draw_0
+   calls: Variable_BuiltIn_Find, Variable_GetBuiltIn_Direct
+   strs: ['Profile Media']
+== 0x3041b80 size=0x10 
+   calls: gml_Script_scr_play_char_voice
+== 0x3041b90 size=0x680 hookB:gml_Script_scr_play_char_voice
+   calls: INT32_RValuex3, F_InstanceNumber
+   strs: ['parent', 'plr_controller', 'plr_num', 'is_speaking', 'custom_volsounds']
+== 0x3042210 size=0x730 
+   calls: INT32_RValuex4, F_InstanceFindx2, F_VariableInstanceSet
+   strs: ['itemobj', 'visible', 'temp_points_hp', 'emp_points_hp']
+== 0x3042940 size=0x170 hookB:Java_com_yoyogames_runner_RunnerJNILib_SetKeyValue
+   strs: ['com/coco/transfer/TransferBridge', 'com/coco/stats/FloatingStats']
+== 0x3042ab0 size=0x20 
+   calls: Java_com_yoyogames_runner_RunnerJNILib_SetKeyValue+0x4
+== 0x3042ad0 size=0x1c0 
+== 0x3042c90 size=0x30 hookB:gml_Object_o_control_general_Step_0
+== 0x3042cc0 size=0x20 
+   calls: gml_Object_o_control_general_Step_0
+== 0x3042ce0 size=0x750 hookB:gml_Object_o_custom_item_stats_Step_0
+   calls: INT32_RValuex7, Variable_GetBuiltIn_Directx4, _ZN8YYRValueaSERKS_x3, Variable_BuiltIn_Find, F_YoYo_MouseCheckButton, F_YoYo_MouseX, F_YoYo_MouseY
+== 0x3043430 size=0x20 
+   calls: gml_Object_o_custom_item_stats_Step_0
+== 0x3043450 size=0x10 
+   calls: plt:YYGML_Variable_GetValue
+== 0x3043460 size=0x3a0 callBL:gml_Object_o_clownshop_item_spawn_Create_0 callBL:gml_Object_o_custom_item_arms2_Mouse_7 callBL:gml_Object_o_custom_item_arms_Mouse_7 callBL:gml_Object_o_custom_item_aura_Mouse_7 callBL:gml_Object_o_custom_item_back_Mouse_7 callBL:gml_Object_o_custom_item_belt_Mouse_7 callBL:gml_Object_o_custom_item_body_Mouse_7 callBL:gml_Object_o_custom_item_bottom_Mouse_7 callBL:gml_Object_o_custom_item_combo1_Mouse_7 callBL:gml_Object_o_custom_item_combo2_Mouse_7 callBL:gml_Object_o_custom_item_design_Mouse_7 callBL:gml_Object_o_custom_item_effect2_Mouse_7 callBL:gml_Object_o_custom_item_effect_Mouse_7 callBL:gml_Object_o_custom_item_face_Mouse_7 callBL:gml_Object_o_custom_item_feet_Mouse_7 callBL:gml_Object_o_custom_item_hair_Mouse_7 callBL:gml_Object_o_custom_item_hat_Mouse_7 callBL:gml_Object_o_custom_item_head_Mouse_7 callBL:gml_Object_o_custom_item_mask_Mouse_7 callBL:gml_Object_o_custom_item_misc_Mouse_7 callBL:gml_Object_o_custom_item_mouth_Mouse_7 callBL:gml_Object_o_custom_item_overall_Mouse_7 callBL:gml_Object_o_custom_item_overtop_Mouse_7 callBL:gml_Object_o_custom_item_parent_Mouse_7 callBL:gml_Object_o_custom_item_pose_Mouse_7 callBL:gml_Object_o_custom_item_seccombo1_Mouse_7 callBL:gml_Object_o_custom_item_seccombo2_Mouse_7 callBL:gml_Object_o_custom_item_skill1_Mouse_7 callBL:gml_Object_o_custom_item_skill2_Mouse_7 callBL:gml_Object_o_custom_item_stats_Mouse_7 callBL:gml_Object_o_custom_item_top_Mouse_7 callBL:gml_Object_o_custom_item_voice_Mouse_7 callBL:gml_Object_o_custom_item_wp_Mouse_7 callBL:gml_Object_o_menu_avatar_Mouse_7 callBL:gml_Object_o_menu_avatars_control_Create_0 callBL:gml_Object_o_menu_charsel_control_Create_0 callBL:gml_Object_o_menu_iap_buychar_Step_0 callBL:gml_Object_o_menu_mapsel_mini_Alarm_0 callBL:gml_Object_o_menu_mapsel_mini_Mouse_7 callBL:gml_Object_o_menu_medal_change_Step_0 callBL:gml_Object_o_menu_medal_info_Create_0 callBL:gml_Object_o_menu_selball_Draw_0 callBL:gml_Object_o_menu_selball_Mouse_4 callBL:gml_Object_o_menu_shop_char_Alarm_0 callBL:gml_Object_o_menu_shop_char_Draw_0 callBL:gml_Object_o_menu_yt_b_Alarm_0 callBL:gml_Object_o_menu_yt_b_Draw_0 callBL:gml_Object_o_shop_pack_items_Create_0 callBL:gml_Object_o_shopchar_char_Alarm_0 callBL:gml_Object_o_shopchar_char_Mouse_4 callBL:gml_Object_o_shopmap_Create_0 callBL:gml_Object_o_shopmap_map_Mouse_7 callBL:gml_Script_scr_char_variants callBL:gml_Script_scr_custom_char_content callBL:gml_Script_scr_plr_transform
+   calls: plt:BOOL_RValue
+== 0x3043800 size=0x30 callBL:gml_Object_o_menu_adventure_title_Alarm_0
+== 0x3043830 size=0x50 hookB:gml_Object_o_menu_charsel_control_Create_0
+== 0x3043880 size=0x9c0 
+   calls: YYGML_Variable_SetValuex12, INT32_RValuex2, YYGML_Variable_GetValuex2, F_VariableGlobalExists, YYGML_CallLegacyFunction, _ZN8YYRValueaSERKS_
+   strs: ['chars_num', 'hars_num']
+== 0x3044240 size=0x810 
+   calls: YYGML_Variable_SetValuex5, INT32_RValuex3, F_InstanceNumber
+   strs: ['game_plrchar_id']
+== 0x3044a50 size=0x20 
+   calls: gml_Object_o_menu_charsel_control_Create_0
+== 0x3044a70 size=0x1040 hookB:gml_Script_scr_menu_get_char
+   calls: _ZN8YYRValueaSERKS_x32, YYConstStringx4, INT32_RValuex2
+   strs: ['Solar Coco', 'Sovereign of the Sun', 'Green nature', 'Awakened Grove Warden', 'reen nature', 'Coco', 'Reality Slicer', 'eality Slicer', 'Sunforge Sovereign', 'Coco Reality Slicer', 'oco Reality Slicer']
+== 0x3045ab0 size=0x20 
+   calls: gml_Script_scr_menu_get_char
+== 0x3045ad0 size=0x190 
+   calls: Variable_BuiltIn_Find, F_ObjectSetSprite
+== 0x3045c60 size=0x190 
+   calls: Variable_BuiltIn_Find, F_ObjectSetSprite
+== 0x3045df0 size=0x2b0 
+   calls: _ZN8YYRValueaSERKS_x8
+== 0x30460a0 size=0xdd0 hookB:gml_Script_scr_char_variants
+   calls: INT32_RValuex8, YYGML_Variable_SetValuex5, F_InstanceFindx2, YYConstString, F_VariableGlobalExists, YYGML_Variable_GetValue, 0x3061000
+   strs: ['game_plrchar', 'ame_plrchar', 'selected_plr', 'visible']
+== 0x3046e70 size=0x20 
+   calls: gml_Script_scr_char_variants
+== 0x3046e90 size=0x20 
+   calls: InitLLVM
+== 0x3046eb0 size=0x1d0 
+== 0x3047080 size=0x60 
+== 0x30470e0 size=0x290 
+   calls: YYConstString, F_VariableInstanceExists, INT32_RValue, F_VariableInstanceGet
+== 0x3047370 size=0x270 
+   calls: F_PlaceMeetingx2, INT32_RValuex2
+== 0x30475e0 size=0x1100 
+   calls: -0x12b9ae0x5, -0x129dc80x2, -0x141def8x2, F_InstanceNumber, INT32_RValue
+   strs: ['plr_hp']
+== 0x30486e0 size=0x210 
+   calls: INT32_RValuex3
+   strs: ['plr_team', 'parent']
+== 0x30488f0 size=0x160 
+   calls: F_InstanceNumber
+== 0x3048a50 size=0x2f0 
+== 0x3048d40 size=0x1d0 
+   calls: F_PlaceMeeting, INT32_RValue
+== 0x3048f10 size=0x460 
+== 0x3049370 size=0x4bd0 
+   calls: F_PlaceMeeting, INT32_RValue
+== 0x304df40 size=0x2fb0 
+   calls: F_AudioPlaySound
+== 0x3050ef0 size=0x1540 
+   calls: F_PlaceMeeting, INT32_RValue, F_AudioPlaySound
+== 0x3052430 size=0x340 
+   calls: INT32_RValuex7, Variable_GetBuiltIn_Direct, F_InstanceFind
+   strs: ['plr_child', 'match_over', 'game_freeze', 'chat_visible']
+== 0x3052770 size=0x740 
+   calls: INT32_RValuex6, YYGML_CallLegacyFunctionx2, F_InstanceFind
+   strs: ['keysize', 'rkey_y']
+== 0x3052eb0 size=0x80 
+   calls: F_InstanceFind
+== 0x3052f30 size=0x2a0 
+== 0x30531d0 size=0xb0 
+== 0x3053280 size=0x30 
+== 0x30532b0 size=0x260 
+   calls: YYConstString, F_SpriteAdd
+== 0x3053510 size=0xe0 
+   calls: F_AudioPlaySound
+== 0x30535f0 size=0xb80 
+   calls: INT32_RValuex8, -0x12b9ae0x4, F_InstanceNumber, -0x13f277c
+   strs: ['plr_team', 'parent', 'plr_hp', 'is_dead', 'cd_immunity', 'can_gethurt', 'is_defending']
+== 0x3054170 size=0x1010 
+   calls: F_AudioPlaySound
+   strs: ['plr_dmg']
+== 0x3055180 size=0x610 
+   calls: INT32_RValuex5, Variable_GetBuiltIn_Directx4, YYGML_Variable_GetValue, gml_Script_scr_combo_normal, YYGML_Variable_SetValue, Variable_SetBuiltIn_Direct
+   strs: ['plr_dmg']
+== 0x3055790 size=0x1b0 
+== 0x3055940 size=0x260 
+   calls: YYConstString, F_SpriteAdd
+== 0x3055ba0 size=0x2e0 
+   calls: F_AudioPlaySound
+== 0x3055e80 size=0x180 

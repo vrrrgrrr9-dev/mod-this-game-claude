@@ -1,0 +1,124 @@
+"""Build the WOTU Coco mod + Jeff APK in one go.
+
+usage:
+  python build.py --apk WOTU_COCO69.apk --out <dir>
+  python build.py --parts WOTU_COCO69.apk.xz.part01 ... part05 --out <dir>
+
+needs: python3 (numpy, pillow, scipy), clang + ld.lld (any recent LLVM), binutils nm, ffmpeg (libvorbis),
+       java + uber-apk-signer.jar (--signer, default: <out>/uber-apk-signer.jar)
+result: <out>/WOTU_COCO69_Jeff.apk  (signed with the uber-apk-signer debug key)
+"""
+import argparse, lzma, os, shutil, subprocess, sys, zipfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+SRC = os.path.join(ROOT, 'src')
+sys.path.insert(0, os.path.join(ROOT, 'art'))
+
+CFLAGS = ['--target=aarch64-linux-android21', '-O2', '-std=gnu11', '-ffreestanding', '-fno-builtin',
+          '-fno-pic', '-fno-pie', '-mcmodel=small', '-ffixed-x18', '-fno-stack-protector', '-fno-exceptions',
+          '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-fno-common', '-Wall', '-Wextra',
+          '-Wno-unused-parameter', '-Wno-unused-function']
+SIG_FILES = ('.SF', '.RSA', '.DSA', '.EC')
+
+
+def run(cmd, **kw):
+    print('+', ' '.join(cmd) if isinstance(cmd, list) else cmd)
+    subprocess.run(cmd, check=True, **kw)
+
+
+def get_apk(args, work):
+    if args.apk:
+        return args.apk
+    path = os.path.join(work, 'input.apk')
+    with open(path, 'wb') as out:
+        dec = lzma.LZMADecompressor()
+        for p in args.parts:
+            with open(p, 'rb') as f:
+                while True:
+                    chunk = f.read(1 << 22)
+                    if not chunk:
+                        break
+                    out.write(dec.decompress(chunk))
+    return path
+
+
+def build_native(work, libyoyo):
+    gen = os.path.join(work, 'gen'); os.makedirs(gen, exist_ok=True)
+    import manifest
+    open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header())
+    run([sys.executable, '-I', os.path.join(HERE, 'gen_engine.py'), libyoyo,
+         os.path.join(gen, 'engine.ld'), os.path.join(gen, 'engine_vars.h')])
+    objs = []
+    for c in ('jeff.c', 'hooks.c', 'libc.c'):
+        o = os.path.join(gen, c[:-2] + '.o')
+        run(['clang'] + CFLAGS + ['-I', gen, '-I', SRC, '-c', os.path.join(SRC, c), '-o', o])
+        objs.append(o)
+    # no absolute relocations allowed: the blob must work at any load address
+    rel = subprocess.run(['llvm-objdump', '-r'] + objs, capture_output=True, text=True).stdout
+    if 'R_AARCH64_ABS' in rel:
+        sys.exit('absolute relocation found in Jeff objects:\n' + rel)
+    elf = os.path.join(gen, 'jeff.elf')
+    run(['ld.lld', '-m', 'aarch64linux', '-static', '-no-pie', '--no-relax', '-L', gen,
+         '-T', os.path.join(SRC, 'jeff.ld'), '-o', elf] + objs)
+    return elf
+
+
+def repack(src_apk, out_apk, replace, add_dir):
+    zin = zipfile.ZipFile(src_apk)
+    with zipfile.ZipFile(out_apk, 'w') as zout:
+        for info in zin.infolist():
+            n = info.filename
+            if n.startswith('META-INF/') and (n.endswith(SIG_FILES) or n == 'META-INF/MANIFEST.MF'):
+                continue                                    # old signature
+            data = open(replace[n], 'rb').read() if n in replace else zin.read(n)
+            zi = zipfile.ZipInfo(n, info.date_time)
+            zi.compress_type = info.compress_type
+            zi.external_attr = info.external_attr
+            zout.writestr(zi, data)
+        for f in sorted(os.listdir(add_dir)):
+            zi = zipfile.ZipInfo('assets/' + f, (2026, 11, 24, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_STORED
+            zout.writestr(zi, open(os.path.join(add_dir, f), 'rb').read())
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument('--apk'); g.add_argument('--parts', nargs='+')
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--signer')
+    args = ap.parse_args()
+    work = os.path.abspath(args.out); os.makedirs(work, exist_ok=True)
+
+    apk = get_apk(args, work)
+    z = zipfile.ZipFile(apk)
+    lib_in = os.path.join(work, 'libyoyo.orig.so'); open(lib_in, 'wb').write(z.read('lib/arm64-v8a/libyoyo.so'))
+    droid_in = os.path.join(work, 'game.orig.droid'); open(droid_in, 'wb').write(z.read('assets/game.droid'))
+
+    assets = os.path.join(work, 'assets')
+    shutil.rmtree(assets, ignore_errors=True)
+    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'build_art.py'), assets])
+
+    elf = build_native(work, lib_in)
+    lib_out = os.path.join(work, 'libyoyo.so')
+    droid_out = os.path.join(work, 'game.droid')
+    run([sys.executable, '-I', os.path.join(HERE, 'elfpatch.py'), lib_in, elf, lib_out])
+    run([sys.executable, '-I', os.path.join(HERE, 'droidpatch.py'), droid_in, droid_out])
+
+    unsigned = os.path.join(work, 'WOTU_COCO69_Jeff-unsigned.apk')
+    repack(apk, unsigned, {'lib/arm64-v8a/libyoyo.so': lib_out, 'assets/game.droid': droid_out}, assets)
+    signer = args.signer or os.path.join(work, 'uber-apk-signer.jar')
+    if not os.path.exists(signer):
+        print('no uber-apk-signer.jar: leaving the APK unsigned ->', unsigned)
+        return
+    signed_dir = os.path.join(work, 'signed'); shutil.rmtree(signed_dir, ignore_errors=True)
+    run(['java', '-jar', signer, '-a', unsigned, '-o', signed_dir, '--allowResign'])
+    produced = [f for f in os.listdir(signed_dir) if f.endswith('.apk')]
+    final = os.path.join(work, 'WOTU_COCO69_Jeff.apk')
+    shutil.move(os.path.join(signed_dir, produced[0]), final)
+    print('done ->', final)
+
+
+if __name__ == '__main__':
+    main()

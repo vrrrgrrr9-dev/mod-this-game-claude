@@ -1,0 +1,36 @@
+3649 gml_Object_o_coco_Create_0 0x3004830
+3650 gml_Object_o_coco_Step_0 0x3006d20
+3651 gml_Object_o_coco_Draw_0 0x3011400
+3652 gml_Object_o_coco_Draw_64 0x301a090
+3653 gml_Object_o_coco_Destroy_0 0x3006c60
+3654 gml_Object_o_coco_Step_1 ('ORIG', '#0xe58]')
+3655 gml_Object_o_coco_Step_2 0x3004520
+3656 gml_Object_o_coco_Collision_o_tile_hit ('ORIG', '#0xe70]')
+3657 gml_Object_o_coco_reality_slicer_Create_0 0x301b200
+3658 gml_Object_o_coco_reality_slicer_Step_0 0x3006d20
+3659 gml_Object_o_coco_reality_slicer_Draw_0 0x3011400
+3660 gml_Object_o_coco_reality_slicer_Draw_64 0x301a090
+3661 gml_Object_o_coco_reality_slicer_Destroy_0 0x3006c60
+3662 gml_Object_o_coco_reality_slicer_Step_1 ('ORIG', '#0xe58]')
+3663 gml_Object_o_coco_reality_slicer_Step_2 0x3004520
+3664 gml_Object_o_coco_reality_slicer_Collision_o_tile_hit ('ORIG', '#0xe70]')
+3665 gml_Object_o_green_nature_Create_0 0x301b970
+3666 gml_Object_o_green_nature_Step_0 0x3020720
+3667 gml_Object_o_green_nature_Draw_0 0x30283e0
+3668 gml_Object_o_green_nature_Destroy_0 0x302af90
+3669 gml_Object_o_green_nature_Alarm_0 0x301ca40
+3670 gml_Object_o_green_nature_Alarm_2 0x301cf30
+3671 gml_Object_o_green_nature_Alarm_3 0x301f560
+3672 gml_Object_o_green_nature_Alarm_4 0x301efa0
+3673 gml_Object_o_solar_coco_Create_0 0x302b230
+3674 gml_Object_o_solar_coco_Step_0 0x302ed30
+3675 gml_Object_o_solar_coco_Draw_0 0x3031e10
+3676 gml_Object_o_solar_coco_Destroy_0 0x30371f0
+3677 gml_Object_o_solar_coco_Alarm_0 0x302c240
+3678 gml_Object_o_solar_coco_Alarm_2 0x302c730
+3679 gml_Object_o_solar_coco_Alarm_3 0x302e500
+3680 gml_Object_o_solar_coco_Alarm_4 0x302e1b0
+3681 gml_Object_o_solar_coco_Draw_64 0x3036350
+3682 gml_Object_o_custom_b_effect3_Create_0 0x303e450
+3683 gml_Object_o_custom_b_effect4_Create_0 0x303e450
+3684 gml_Object_o_green_nature_Draw_64 0x301fec0
