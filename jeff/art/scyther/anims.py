@@ -165,19 +165,20 @@ META_KEYS = ('wang', 'wl', 'wh', 'wf')
 
 
 def render_frame(pose):
+    """-> (2x body image, meta). meta: gx, gy = grip relative to the feet in 2x pixels; wang; flags."""
     pose = dict(pose)
     meta = {k: pose.pop(k, 0) for k in META_KEYS}
     im, g = rig.render(pose)
     if g is None:
-        g = (OX + 14, OY - 40)
+        g = (OX + 14 * rig.K, OY - 40 * rig.K)
     meta['gx'] = int(round(g[0] - OX))
     meta['gy'] = int(round(g[1] - OY))
     meta['wang'] = int(round(meta['wang'])) % 360
     return im, meta
 
 
-def composite(body, meta, size=None):
-    """body frame + weapon at its grip (for previews / the select-screen sprite)."""
+def composite(body, meta):
+    """2x body frame + weapon at its grip (previews, select-screen sprite, cutscene)."""
     out = Image.new('RGBA', body.size, (0, 0, 0, 0))
     w = weapon.render(meta['wang'], held=True)
     if meta.get('wf'):
@@ -193,34 +194,65 @@ def composite(body, meta, size=None):
     return out
 
 
-def strip(frames):
-    s = Image.new('RGBA', (W * len(frames), H), (0, 0, 0, 0))
+def to_1x(im):
+    """2x -> 1x (premultiplied box filter, then crisp alpha) for 1x uses (select screen, cutscene)."""
+    a = np.array(im).astype(np.float32)
+    pm = a.copy(); pm[..., :3] *= a[..., 3:4] / 255
+    h, w = a.shape[0] // 2, a.shape[1] // 2
+    s = pm[:h * 2, :w * 2].reshape(h, 2, w, 2, 4).mean(axis=(1, 3))
+    al = s[..., 3:4]
+    rgb = np.where(al > 1, s[..., :3] / np.maximum(al / 255, 1e-3), 0)
+    alpha = np.where(al[..., 0] >= 96, 255, 0)
+    out = np.concatenate([np.clip(rgb, 0, 255), alpha[..., None]], axis=2)
+    return Image.fromarray(out.astype(np.uint8), 'RGBA')
+
+
+def hero_1x(pose):
+    im, m = render_frame(pose)
+    return to_1x(composite(im, m))
+
+
+def strip(frames, w=None, h=None):
+    w = w or frames[0].width; h = h or frames[0].height
+    s = Image.new('RGBA', (w * len(frames), h), (0, 0, 0, 0))
     for i, f in enumerate(frames):
-        s.paste(f, (i * W, 0))
+        s.paste(f, (i * w, 0))
     return s
 
 
 def build(out):
+    """write every body strip (cropped per animation), the select-screen preview and
+    scyther_frames.json (frame sizes, origins, per-frame weapon metadata)."""
     os.makedirs(out, exist_ok=True)
-    meta_all, comp_all = {}, {}
+    info, comp_all = {}, {}
     for name in ANIM_ORDER:
-        frames, metas, comps = [], [], []
+        frames, metas = [], []
         for pose in A[name]:
             im, m = render_frame(pose)
-            frames.append(im); metas.append(m); comps.append(composite(im, m))
-        strip(frames).save(os.path.join(out, f'scyther_{name}.png'))
-        meta_all[name] = metas
-        comp_all[name] = comps
-    # select-screen preview: idle frames with the scythe baked in
-    strip([composite(*render_frame(p)) for p in A['stand'][:4]]).save(os.path.join(out, 'scyther_preview.png'))
-    json.dump({'order': ANIM_ORDER, 'meta': meta_all}, open(os.path.join(out, 'scyther_frames.json'), 'w'))
+            frames.append(im); metas.append(m)
+        # union bounding box of the animation (+ margin), so 2x strips stay small
+        box = None
+        for f in frames:
+            bb = f.getbbox()
+            if bb:
+                box = bb if box is None else (min(box[0], bb[0]), min(box[1], bb[1]), max(box[2], bb[2]), max(box[3], bb[3]))
+        x0, y0, x1, y1 = box
+        x0, y0 = max(0, x0 - 2), max(0, y0 - 2); x1, y1 = min(W, x1 + 2), min(H, y1 + 2)
+        crops = [f.crop((x0, y0, x1, y1)) for f in frames]
+        strip(crops).save(os.path.join(out, f'scyther_{name}.png'))
+        info[name] = dict(w=x1 - x0, h=y1 - y0, ox=OX - x0, oy=OY - y0, meta=metas)
+        comp_all[name] = [composite(f, m) for f, m in zip(frames, metas)]
+    prev = [to_1x(composite(*render_frame(p))) for p in A['stand'][:4]]
+    strip(prev).save(os.path.join(out, 'scyther_preview.png'))
+    json.dump({'order': ANIM_ORDER, 'k': rig.K, 'anims': info, 'preview': dict(w=W // 2, h=H // 2, ox=OX // 2, oy=OY // 2)},
+              open(os.path.join(out, 'scyther_frames.json'), 'w'))
     return comp_all
 
 
 if __name__ == '__main__':
     out = sys.argv[1] if len(sys.argv) > 1 else 'out'
     comp = build(out)
-    Z = 2
+    Z = 1
     cols = max(len(v) for v in comp.values())
     sheet = Image.new('RGBA', (W * Z * cols + 20, (H * Z + 18) * len(comp)), (16, 11, 34, 255))
     d = ImageDraw.Draw(sheet)
@@ -230,7 +262,7 @@ if __name__ == '__main__':
         for i, f in enumerate(fr):
             x = 10 + i * W * Z
             d.line([(x, y + 14 + OY * Z), (x + W * Z - 6, y + 14 + OY * Z)], fill=(70, 50, 110, 255))
-            sheet.alpha_composite(f.resize((W * Z, H * Z), Image.NEAREST), (x, y + 14))
+            sheet.alpha_composite(f, (x, y + 14))
         y += H * Z + 18
     sheet.save(os.path.join(out, 'preview_sheet.png'))
     print('rendered', len(comp), 'animations,', sum(len(v) for v in comp.values()), 'frames')

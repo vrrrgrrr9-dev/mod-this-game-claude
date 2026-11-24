@@ -178,8 +178,8 @@ def strip(frames):
 def all_rifts():
     """name -> (void strip, edge strip, origin)"""
     out = {}
-    v, e = make(96, 48, 80, 9.0, seed=7)
-    out['rift'] = (v, e, (48, 24))
+    v, e = make(192, 96, 160, 18.0, seed=7, cracks=9)        # 2x density (drawn at half scale)
+    out['rift'] = (v, e, (96, 48))
     v, e = make(176, 96, 156, 26.0, seed=11, galaxy=True, cracks=12)
     out['riftbig'] = (v, e, (88, 48))
     return out

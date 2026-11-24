@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rig
 from rig import Canvas, lerp, _m
 
-WS = 112                       # sprite size; origin at the centre
+WS = 200                       # sprite size at 2x (drawn at half scale in game); origin at the centre
 KSCALE = 0.9                   # overall weapon scale vs the rooster
 HALF = 30.0                    # half haft length (local units)
 OBS = _m((30, 20, 44), (82, 62, 120), (10, 6, 18), (132, 90, 220), (4, 2, 10))
@@ -28,6 +28,7 @@ VEIN = (186, 86, 255, 255)
 VEIN_HOT = (240, 196, 255, 255)
 EDGE = (226, 150, 255, 255)
 SUBV = (120, 50, 200, 255)
+RUNE = (206, 130, 255, 255)
 GEM = (236, 150, 255, 255)
 GEM_HOT = (255, 236, 255, 255)
 HALO = (150, 60, 250)
@@ -64,7 +65,7 @@ def blade_geo(s):
         outer.append((p[0] + nn[0] * w * o, p[1] + nn[1] * w * o))
         inner.append((p[0] - nn[0] * w * o * 0.9, p[1] - nn[1] * w * o * 0.9))
     thorns = []
-    for t, L in ((0.12, 4.2), (0.27, 3.6), (0.42, 3.0), (0.57, 2.2)):
+    for t, L in ((0.1, 4.4), (0.22, 3.8), (0.34, 3.2), (0.46, 2.7), (0.58, 2.1), (0.7, 1.5)):
         i = int(t * (n - 1))
         p = outer[i]; nn = ns[i]; o = 1 if nn[0] * s > 0 else -1
         d = (nn[0] * o, nn[1] * o)
@@ -165,6 +166,10 @@ def render(angle, held=True, tilt=0.0, layer='all', glow=True):
                 c.img[c.taper(XL(sub), 0.4, 0.2) & bm] = SUBV
                 c.img[c.taper(XL(inner[1:-1]), 0.7, 0.3) & bm] = EDGE
                 c.img[c.taper(XL(inner[6:-8]), 0.35, 0.2) & bm] = VEIN_HOT
+                # rune engravings between the spine vein and the outer edge
+                for i in range(5, len(spine) - 8, 3):
+                    a_ = lerp(spine[i], poly[i], 0.35); b_ = lerp(spine[i], poly[i], 0.7)
+                    c.img[c.taper(XL([a_, b_]), 0.16, 0.16) & bm] = RUNE if (i // 3) % 2 else SUBV
             elif kind == 'polys':
                 for pp in data:
                     c.paint(c.poly(XL(pp)), obs2, shade=1, hl=1, rim=0)
@@ -178,10 +183,14 @@ def render(angle, held=True, tilt=0.0, layer='all', glow=True):
                 c.paint(km, obs2, shade=1, hl=1, rim=1)
                 gm = c.ell(X(data), 1.3 * K, max(0.45, 1.3 * K * abs(ct))) & km
                 c.img[gm] = GEM
-                c.img[c.ell(X((kx - 0.4, -0.4)), 0.5, 0.5) & gm] = GEM_HOT
+                c.img[gm & ~rig.shift(gm, 1, 1)] = (170, 80, 230, 255)        # facet shade
+                c.img[c.ell(X((kx - 0.4, -0.4)), 0.45, 0.45) & gm] = GEM_HOT
             elif kind == 'haft':
                 hm = c.taper(XL(data), 1.7 * K, 1.7 * K)
                 c.paint(hm, obs2, shade=1, hl=1, rim=1)
+                for k in range(1, len(data) - 1, 2):      # spiral wrap
+                    x_, y_ = data[k]
+                    c.img[c.taper(XL([(x_ - 0.7, y_ + 1.3), (x_ + 0.7, y_ - 1.3)]), 0.14, 0.14) & hm] = obs2['light']
                 for k in range(0, len(data) - 3, 4):
                     seg = c.taper(XL([(data[k][0], data[k][1] + 0.3), (data[k + 2][0], data[k + 2][1] - 0.3)]), 0.3, 0.3) & hm
                     c.img[seg] = VEIN

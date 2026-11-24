@@ -8,16 +8,22 @@ violet with starlight speckles; every part is cel-shaded automatically (key ligh
 a cyan rim light from behind) and the silhouette gets a dark 1px outline.
 
 The scythe is NOT drawn here: weapon.py renders it at 32 angles and the game draws it at the grip
-point returned by render() (so it can spin, be thrown and twirl).  Frame: 128x120, feet at (64,106).
+point returned by render() (so it can spin, be thrown and twirl).
+
+Rendered at 2x pixel density (K = 2): the game's camera view is 600x300 but it renders to a
+1200x600 surface, so the game draws Scyther at half scale and every one of these pixels reaches the
+screen - twice the detail of the 1x fighters.  World coordinates stay in 1x units.
+Frame: 256x240, feet at (128,212).
 """
 import math
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
-SS = 8                                   # supersampling for mask rasterisation
-W, H = 128, 120
-OX, OY = 64, 106
+SS = 6                                   # supersampling for mask rasterisation
+K = 2                                    # render scale (pixels per world unit)
+W, H = 128 * K, 120 * K
+OX, OY = 64 * K, 106 * K
 CROSS = ndi.generate_binary_structure(2, 1)
 
 # ------------------------------------------------------------------------------------------
@@ -102,15 +108,19 @@ def ik2(A, C, la, lb, bend=1):
 
 
 class Canvas:
-    def __init__(self, w=W, h=H, ox=OX, oy=OY):
-        self.w, self.h, self.ox, self.oy = w, h, ox, oy
+    def __init__(self, w=W, h=H, ox=OX, oy=OY, k=K):
+        self.w, self.h, self.ox, self.oy, self.k = w, h, ox, oy, k
         self.img = np.zeros((h, w, 4), np.uint8)
         self.sil = np.zeros((h, w), bool)
         self.big = Image.new('L', (w * SS, h * SS), 0)
         self.d = ImageDraw.Draw(self.big)
 
     def _p(self, p):
-        return ((self.ox + p[0]) * SS, (self.oy + p[1]) * SS)
+        return ((self.ox + p[0] * self.k) * SS, (self.oy + p[1] * self.k) * SS)
+
+    def px(self, p):
+        """world -> integer pixel coords."""
+        return int(round(self.ox + p[0] * self.k)), int(round(self.oy + p[1] * self.k))
 
     def _clear(self):
         self.d.rectangle((0, 0, self.w * SS, self.h * SS), fill=0)
@@ -134,14 +144,14 @@ class Canvas:
         n = len(pts) - 1
         for k in range(n):
             a, b = pts[k], pts[k + 1]
-            seg = math.hypot(b[0] - a[0], b[1] - a[1])
+            seg = math.hypot(b[0] - a[0], b[1] - a[1]) * self.k
             steps = max(2, int(seg * SS / 3))
             for j in range(steps):
                 t = j / steps; u = (k + t) / n
                 x, y = self._p((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
-                r = max(0.25, r0 + (r1 - r0) * u) * SS
+                r = max(0.25, r0 + (r1 - r0) * u) * SS * self.k
                 self.d.ellipse((x - r, y - r, x + r, y + r), fill=255)
-        x, y = self._p(pts[-1]); r = max(0.25, r1) * SS
+        x, y = self._p(pts[-1]); r = max(0.25, r1) * SS * self.k
         self.d.ellipse((x - r, y - r, x + r, y + r), fill=255)
         return self._bake(thr)
 
@@ -160,7 +170,7 @@ class Canvas:
             ring = ndi.binary_dilation(m, CROSS) & ~m & painted
             self.img[ring] = mat['line']
         # contact shadow cast down-left onto parts below
-        cast = shift(m, -1, 1) & ~m & painted
+        cast = (shift(m, -1, 1) | shift(m, -self.k, self.k)) & ~m & painted
         if cast.any():
             self.img[cast, :3] = (self.img[cast, :3].astype(np.float32) * 0.8).astype(np.uint8)
         ramp = mat.get('ramp')
@@ -169,7 +179,7 @@ class Canvas:
             ramp = [np.clip(s * 0.72, 0, 255), s, b, l, np.clip(l * 1.12 + 22, 0, 255)]
             mat['ramp'] = ramp
         dt = ndi.distance_transform_edt(np.pad(m, 1))[1:-1, 1:-1]
-        if dt.max() < 2.3:                            # thin part (feather, spike): crisp bands
+        if dt.max() < 1.6 * self.k:                   # thin part (feather, spike): crisp bands
             self.img[m] = mat['base']
             if shade:
                 self.img[m & ~shift(m, 1, -1)] = mat['shadow']
@@ -180,11 +190,11 @@ class Canvas:
             if sil:
                 self.sil |= m
             return
-        R = max(1.6, min(6.5, float(dt.max())))
+        R = max(1.6, min(6.5 * self.k, float(dt.max())))
         hgt = np.sqrt(np.clip(dt / R, 0, 1))
-        hgt = ndi.gaussian_filter(hgt, 0.7) * m
+        hgt = ndi.gaussian_filter(hgt, 0.7 * self.k) * m
         gy, gx = np.gradient(hgt)
-        nx, ny = -gx * bump, -gy * bump
+        nx, ny = -gx * bump * self.k, -gy * bump * self.k
         nz = 1.0 / np.sqrt(1 + nx * nx + ny * ny)
         nx, ny = nx * nz, ny * nz
         L = (0.55, -0.62, 0.56)                       # key light: upper front-right, toward viewer
@@ -305,107 +315,149 @@ def draw_leg(c, U, G, foot, toe, far, p):
     hipw = ap(U, (HIP[0] + (-2.5 if far else 0.5), HIP[1] + 1.0))
     fw = ap(G, foot)
     hock = ik2(hipw, fw, LT, LS, bend=1)
-    # feathered drumstick + fringe
+    # feathered drumstick with a fringe of pointed feathers over the hock
     c.paint(c.taper([hipw, lerp(hipw, hock, 0.45), hock], 3.7, 1.5), mat_p, shade=2, hl=1, rim=0)
-    # scaled shank (thin, with small scale marks on the front edge)
+    for t, off in ((0.62, -1.4), (0.74, 0.2), (0.86, 1.4)):
+        q = lerp(hipw, hock, t)
+        tip = (q[0] + off - 1.2, q[1] + 3.4)
+        strand(c, q, lerp(q, tip, 0.5), tip, 0.9, 0.2, mat_p, rachis=False)
+    # scaled shank: transverse scutes down the front, a light edge
     shank = c.taper([hock, fw], 1.2, 1.0)
     c.paint(shank, mat_l, shade=1, hl=1, rim=0)
     dxs, dys = fw[0] - hock[0], fw[1] - hock[1]
     L = math.hypot(dxs, dys) or 1
     nx, ny = dys / L, -dxs / L                 # front normal
-    for t in (0.3, 0.52, 0.74):
+    for i, t in enumerate(np.linspace(0.12, 0.9, 8)):
         q = lerp(hock, fw, t)
-        mk = c.ell((q[0] + nx * 0.9, q[1] + ny * 0.9), 0.5, 0.5) & shank
-        c.img[mk] = mat_l['shadow']
-    # spur: on the back of the shank, pointing back/down
+        a = (q[0] + nx * 0.05, q[1] + ny * 0.05)
+        b = (q[0] + nx * 1.1 + (dxs / L) * 0.35, q[1] + ny * 1.1 + (dys / L) * 0.35)
+        c.img[c.taper([a, b], 0.18, 0.18) & shank] = mat_l['shadow'] if i % 2 == 0 else mat_l['line']
+    # spur: on the back of the shank, pointing back/down, glowing tip
     sp0 = lerp(fw, hock, 0.30)
     ang = math.atan2(fw[1] - hock[1], fw[0] - hock[0]) + math.radians(95)
-    sp1 = (sp0[0] + 4.0 * math.cos(ang), sp0[1] + 4.0 * math.sin(ang))
-    sm = c.taper([sp0, lerp(sp0, sp1, 0.6), sp1], 0.95, 0.18)
-    c.paint(sm, SPUR, shade=0, hl=1, rim=1)
-    tipm = c.taper([lerp(sp0, sp1, 0.7), sp1], 0.4, 0.15) & sm
-    c.img[tipm] = SPUR['rim']
-    # toes: two forward toes, the hind toe, dark talons
+    sp1 = (sp0[0] + 4.2 * math.cos(ang), sp0[1] + 4.2 * math.sin(ang))
+    sm = c.taper([sp0, lerp(sp0, sp1, 0.6), sp1], 1.0, 0.16)
+    c.paint(sm, SPUR, shade=1, hl=1, rim=0)
+    c.img[c.taper([lerp(sp0, sp1, 0.62), sp1], 0.45, 0.15) & sm] = SPUR['rim']
+    # toes with scale rings, dark curved talons with a glint
     tr = math.radians(toe)
-    for L, a in ((5.6, 0.0), (4.6, -12.0), (2.8, 180.0)):
+    for L2, a in ((5.6, 0.0), (4.6, -12.0), (2.8, 180.0)):
         aa = tr + math.radians(a)
-        tip = (fw[0] + L * math.cos(aa), fw[1] + L * math.sin(aa) - 0.2)
+        tip = (fw[0] + L2 * math.cos(aa), fw[1] + L2 * math.sin(aa) - 0.2)
         tm = c.taper([fw, tip], 1.05, 0.55)
         c.paint(tm, mat_l, shade=0, hl=1, rim=0)
-        tal = (tip[0] + 1.4 * math.cos(aa + 0.6), tip[1] + 1.4 * math.sin(aa + 0.6))
-        c.flat(c.taper([tip, tal], 0.5, 0.2), TALON)
+        for tt in (0.4, 0.72):
+            q = lerp(fw, tip, tt)
+            c.img[c.taper([(q[0], q[1] - 0.6), (q[0] + 0.2, q[1] + 0.6)], 0.16, 0.16) & tm] = mat_l['shadow']
+        tal = (tip[0] + 1.5 * math.cos(aa + 0.6), tip[1] + 1.5 * math.sin(aa + 0.6))
+        c.flat(c.taper([tip, lerp(tip, tal, 0.5), tal], 0.55, 0.15), TALON)
+        x, y = c.px(lerp(tip, tal, 0.35))
+        if 0 <= x < c.w and 0 <= y < c.h:
+            c.img[y, x] = (120, 100, 170, 255)
     return hock
 
 
-def strand(c, a, ctrl, b, r0, r1, mat, sheen=None, rim=0, hl=0):
-    pts = bez(a, ctrl, b, 14)
+def strand(c, a, ctrl, b, r0, r1, mat, sheen=None, rim=0, hl=0, rachis=True, tip=True):
+    """one feather: tapered stroke along a curve, quill line down its centre, lighter tip."""
+    pts = bez(a, ctrl, b, 16)
     m = c.taper(pts, r0, r1)
     c.paint(m, mat, shade=1, hl=hl, rim=rim)
     if sheen is not None:
         s = c.taper(pts[2:-3], max(0.3, r0 * 0.38), 0.2) & m
         c.img[s] = sheen
+    if rachis and r0 >= 1.3:
+        c.img[c.taper(pts[1:-4], 0.2, 0.14) & m] = mat['line'] if r0 >= 2.2 else mat['shadow']
+    if tip and r0 >= 1.0:
+        c.img[c.taper(pts[-4:], max(0.25, r1 + 0.15), 0.12) & m] = mat['light']
     return m
 
 
 def draw_tail(c, Tm, p):
     f = p['flow']
     specs = [  # (base, ctrl, tip, r0, mat, sheen)
+        ((-13.6, -34.2), (-23.0, -42.0), (-30.0 - f * 0.4, -27.5 + f * 0.3), 2.2, TAIL2, None),
         ((-13.8, -34.6), (-25.0, -50.0), (-35.5 - f * 0.6, -33.0 + f * 0.5), 2.6, TAIL2, SHEEN),
         ((-13.2, -35.8), (-21.5, -59.0), (-35.0 - f * 0.8, -42.5 + f * 0.6), 2.9, TAIL, SHEEN),
         ((-12.6, -36.8), (-17.0, -63.5), (-31.0 - f, -50.0 + f * 0.8), 3.1, TAIL, SHEEN2),
+        ((-12.2, -37.4), (-15.5, -55.0), (-24.0 - f * 0.7, -52.0 + f * 0.6), 2.4, TAIL2, None),
         ((-12.4, -37.6), (-17.0, -49.0), (-25.5, -45.0 + f * 0.3), 2.8, TAIL2, None),
         ((-13.4, -36.0), (-20.0, -44.0), (-28.0, -37.5 + f * 0.3), 2.6, TAIL2, None),
     ]
     for a, ctl, b, r0, mat, sh in specs:
         strand(c, ap(Tm, a), ap(Tm, ctl), ap(Tm, b), r0, 0.4, mat, sheen=sh, rim=0, hl=1)
-        # magenta starlight tip on the long sickles
-        if sh is not None:
-            tipm = c.taper([lerp(ap(Tm, ctl), ap(Tm, b), 0.82), ap(Tm, b)], 0.6, 0.3)
+        if sh is not None:                    # magenta starlight tip on the long sickles
+            tipm = c.taper([lerp(ap(Tm, ctl), ap(Tm, b), 0.82), ap(Tm, b)], 0.65, 0.3)
             c.img[tipm & (c.img[..., 3] > 0)] = (214, 120, 240, 255)
+    # short coverts over the base of the tail
+    for i in range(5):
+        t = i / 4
+        b0 = ap(Tm, lerp((-11.5, -38.2), (-14.6, -33.6), t))
+        tp = ap(Tm, (lerp((-19.0, -43.0), (-21.0, -33.0), t)[0] - f * 0.3, lerp((-19.0, -43.0), (-21.0, -33.0), t)[1]))
+        strand(c, b0, (lerp(b0, tp, 0.5)[0], lerp(b0, tp, 0.5)[1] - 1.2), tp, 1.7, 0.3, SADL if i % 2 else HACK, hl=1)
+
+
+def scallops(c, M, region, rows, mat, x0=-12.0, x1=9.0, y0=-38.0, dy=3.4, dx=3.2, r=1.3, col='shadow'):
+    """rows of feather edges (small U arcs) inside `region` (mask), in part-local coords via M."""
+    for rr in range(rows):
+        y = y0 + rr * dy
+        x = x0 + (rr % 2) * dx * 0.5
+        while x <= x1:
+            arc = apl(M, [(x - r, y - 0.25), (x - r * 0.45, y + r * 0.6), (x + r * 0.45, y + r * 0.6), (x + r, y - 0.25)])
+            m = c.taper(arc, 0.22, 0.22) & region
+            c.img[m] = mat[col]
+            x += dx
 
 
 def draw_wing_fold(c, U, p, ang):
     Wf = U @ R(ang, SH)
-    c.paint(c.poly(apl(Wf, SECOND)), PRIM, shade=1, hl=1, rim=1)
-    for i in range(5):
-        t = i / 4
-        b = lerp((-8.0, -31.0), (-11.0, -29.6), t)
-        tip = lerp((-17.5, -29.8), (-19.6, -27.0), t)
+    sec = c.poly(apl(Wf, SECOND))
+    c.paint(sec, PRIM, shade=1, hl=1, rim=1)
+    for i in range(6):                       # secondary feather separations
+        t = i / 5
+        a = lerp((0.2, -29.8), (-12.0, -29.8), t)
+        b = (a[0] - 1.2, a[1] + 3.6)
+        c.img[c.taper(apl(Wf, [a, b]), 0.18, 0.16) & sec] = PRIM['line']
+    for i in range(7):
+        t = i / 6
+        b = lerp((-7.5, -31.2), (-11.5, -29.4), t)
+        tip = lerp((-17.0, -30.4), (-20.2, -26.6), t)
         tip = (tip[0] - p['flow'] * 0.4, tip[1])
-        strand(c, ap(Wf, b), ap(Wf, lerp(b, tip, 0.5)), ap(Wf, tip), 1.3, 0.3, PRIM)
-    c.paint(c.poly(apl(Wf, COVERTS)), COVT, shade=1, hl=1, rim=1)
-    # covert feather scallops
-    for q in ((-1.0, -33.6), (-5.0, -33.0), (-8.0, -32.2), (1.6, -35.6)):
-        m = c.ell(ap(Wf, q), 2.0, 1.2, rot=-10) & c.poly(apl(Wf, COVERTS))
-        c.img[m & ~shift(m, 0, -1)] = COVT['shadow']
+        strand(c, ap(Wf, b), ap(Wf, lerp(b, tip, 0.5)), ap(Wf, tip), 1.4, 0.3, PRIM, hl=1)
+    cov = c.poly(apl(Wf, COVERTS))
+    c.paint(cov, COVT, shade=1, hl=1, rim=1)
+    scallops(c, Wf, cov, 3, COVT, x0=-9.0, x1=3.0, y0=-36.4, dy=2.2, dx=2.6, r=1.1)
 
 
 def draw_wing_grip(c, U, G, p):
     sh = ap(U, SH)
     g = ap(G, p['grip'])
-    # clamp reach
     dx, dy = g[0] - sh[0], g[1] - sh[1]
     d = math.hypot(dx, dy); reach = 15.5
     if d > reach:
         g = (sh[0] + dx / d * reach, sh[1] + dy / d * reach)
     el = ik2(sh, g, 7.5, 8.5, bend=1)          # elbow drops below the line
-    # forearm secondaries hanging below the arm (feathered fringe)
     fx, fy = g[0] - el[0], g[1] - el[1]
     L = math.hypot(fx, fy) or 1
-    nx, ny = -fy / L, fx / L                      # normal (one side)
+    nx, ny = -fy / L, fx / L
     if ny < 0:
-        nx, ny = -nx, -ny                         # make it point down
+        nx, ny = -nx, -ny                       # normal pointing down
     fringe = [el, g, (g[0] + nx * 2.5, g[1] + ny * 2.5)]
+    tips = []
     for t in (0.85, 0.65, 0.45, 0.25, 0.05):
         q = lerp(el, g, t)
-        fringe.append((q[0] + nx * 5.2 - fx / L * 1.6, q[1] + ny * 5.2 - fy / L * 1.6))
+        tp = (q[0] + nx * 5.4 - fx / L * 1.6, q[1] + ny * 5.4 - fy / L * 1.6)
+        fringe.append(tp); tips.append((q, tp))
         fringe.append((q[0] + nx * 3.2, q[1] + ny * 3.2))
     fringe.append((el[0] + nx * 3.0, el[1] + ny * 3.0))
-    c.paint(c.poly(fringe), PRIM, shade=1, hl=1, rim=1)
-    # upper wing (coverts) shoulder -> elbow, forearm -> wrist
-    c.paint(c.taper([sh, lerp(sh, el, 0.5), el], 4.2, 3.0), COVT, shade=1, hl=1, rim=1)
+    fm = c.poly(fringe)
+    c.paint(fm, PRIM, shade=1, hl=1, rim=1)
+    for q, tp in tips:                          # feather separations + quills
+        c.img[c.taper([q, lerp(q, tp, 0.85)], 0.17, 0.15) & fm] = PRIM['line']
+    up = c.taper([sh, lerp(sh, el, 0.5), el], 4.2, 3.0)
+    c.paint(up, COVT, shade=1, hl=1, rim=1)
+    M = T(sh[0], sh[1]) @ R(math.degrees(math.atan2(el[1] - sh[1], el[0] - sh[0])))
+    scallops(c, M, up, 2, COVT, x0=0.5, x1=7.0, y0=-1.0, dy=1.9, dx=2.2, r=0.9)
     c.paint(c.taper([el, g], 2.8, 1.9), COVT, shade=1, hl=1, rim=1)
-    # primaries fan behind the grip (the weapon sprite wraps feather-fingers over the haft)
     for k, (a, L2) in enumerate(((-30, 5.5), (0, 6.5), (28, 5.0))):
         ang = math.atan2(fy, fx) + math.radians(a)
         tip = (g[0] + L2 * math.cos(ang) * 0.6 + nx * 2.0, g[1] + L2 * math.sin(ang) * 0.6 + ny * 2.0)
@@ -420,32 +472,51 @@ def draw_wing_raise(c, U, p, far=False):
     wr = (sh[0] - 11, sh[1] - 14)
     matc = PLUM_F if far else COVT
     matp = PLUM_F if far else PRIM
-    for i in range(7):                     # long primaries fanning up/back
-        a = math.radians(-158 + i * 15)
-        L2 = 15.5 - abs(i - 2) * 1.3
+    for i in range(9):
+        a = math.radians(-162 + i * 12)
+        L2 = 15.5 - abs(i - 3) * 1.1
         tip = (wr[0] + L2 * math.cos(a), wr[1] + L2 * math.sin(a))
-        strand(c, wr, lerp(wr, tip, 0.45), tip, 2.3, 0.45, matp, hl=1)
-    for i in range(5):                     # secondaries hanging from the forearm
-        q = lerp(el, wr, i / 4)
-        tip = (q[0] - 5.5 - i, q[1] + 8.5 - i * 1.5)
-        strand(c, q, lerp(q, tip, 0.5), tip, 2.2, 0.5, matp, hl=1)
+        strand(c, wr, lerp(wr, tip, 0.45), tip, 2.2, 0.45, matp, hl=1)
+    for i in range(6):
+        q = lerp(el, wr, i / 5)
+        tip = (q[0] - 5.5 - i, q[1] + 8.5 - i * 1.4)
+        strand(c, q, lerp(q, tip, 0.5), tip, 2.1, 0.5, matp, hl=1)
     c.paint(c.taper([sh, el, wr], 3.8, 2.4), matc, shade=1, hl=1, rim=1)
 
 
-EYE_STAMPS = {
-    # (dx, dy) -> colour key; eye centre at (0, 0); facing right (beak side = +x)
-    'angry': {(-2, -2): 'B', (-1, -2): 'B', (-1, -1): 'B', (0, -1): 'B', (1, -1): 'B', (1, 0): 'B', (2, 0): 'B',
-              (-2, 0): 'S', (-1, 0): 'I', (0, 0): 'I', (-2, 1): 'S', (-1, 1): 'I', (0, 1): 'W', (1, 1): 'I',
-              (2, 1): 'S', (-1, 2): 'S', (0, 2): 'S', (1, 2): 'S'},
-    'wide':  {(-2, -2): 'B', (-1, -2): 'B', (0, -2): 'B', (1, -2): 'B',
-              (-2, -1): 'S', (-1, -1): 'I', (0, -1): 'I', (1, -1): 'S', (-2, 0): 'S', (-1, 0): 'I', (0, 0): 'W',
-              (1, 0): 'I', (2, 0): 'S', (-1, 1): 'S', (0, 1): 'I', (1, 1): 'S'},
-    'shut':  {(-2, 0): 'B', (-1, 0): 'B', (0, 0): 'B', (1, 1): 'B', (2, 1): 'B', (-1, -1): 'B'},
-    'x':     {(-1, -1): 'P', (1, -1): 'P', (0, 0): 'P', (-1, 1): 'P', (1, 1): 'P', (2, -2): 'P', (-2, 2): 'P'},
-}
-EYE_STAMPS['glow'] = dict(EYE_STAMPS['angry'])
-EYE_STAMPS['glow'].update({(-3, 0): 'G', (-4, 0): 'G', (-5, -1): 'G', (-6, -1): 'g', (-3, 1): 'g'})
-EYE_COL = dict(B=(30, 6, 30, 255), S=EYE_SOCK, I=EYE_IRIS, W=EYE_HOT, P=EYE_PUP, G=(170, 250, 255, 255), g=(110, 200, 255, 255))
+def draw_eye(c, Hm, e):
+    """the eye at 2x: dark socket, cyan iris with a darker ring, slit pupil, glint, heavy brow."""
+    kk = HEAD_K
+    E = ap(Hm, EYE)
+    if e == 'x':
+        for a, b in (((-1.3, -1.3), (1.3, 1.3)), ((-1.3, 1.3), (1.3, -1.3))):
+            c.flat(c.taper([(E[0] + a[0], E[1] + a[1]), (E[0] + b[0], E[1] + b[1])], 0.35, 0.35), EYE_PUP, sil=False)
+        return
+    if e == 'shut':
+        c.flat(c.taper([(E[0] - 1.8, E[1] - 0.4), (E[0], E[1] + 0.3), (E[0] + 1.8, E[1] - 0.1)], 0.3, 0.3), EYE_PUP, sil=False)
+        c.flat(c.poly([(x, y - 0.6) for x, y in apl(Hm, BROW_P)]), BROW, sil=False)
+        return
+    wide = e in ('wide',)
+    c.flat(c.ell(E, 1.85 * kk * 0.78, 1.45 * kk * 0.78), EYE_SOCK, sil=False)
+    ir = (1.38 if wide else 1.22) * kk * 0.78
+    iris = c.ell((E[0] + 0.15, E[1] + 0.05), ir, ir * 0.88)
+    c.flat(iris, EYE_IRIS, sil=False)
+    ring = iris & ~c.ell((E[0] + 0.15, E[1] + 0.05), ir * 0.72, ir * 0.62)
+    c.img[ring] = (70, 170, 220, 255)
+    c.flat(c.ell((E[0] + 0.45, E[1] + 0.05), 0.32 * kk, 0.78 * kk * 0.8), EYE_PUP, sil=False)
+    gx, gy = c.px((E[0] - 0.35, E[1] - 0.45))
+    if 0 <= gx < c.w and 0 <= gy < c.h:
+        c.img[gy, gx] = EYE_HOT
+    if e == 'glow':
+        gl = c.taper([(E[0] - 1.0, E[1]), (E[0] - 4.5, E[1] - 0.8), (E[0] - 8.0, E[1] - 1.8)], 0.42, 0.12)
+        c.img[gl] = (170, 250, 255, 255)
+    if not wide:
+        c.flat(c.poly(apl(Hm, BROW_P)), BROW, sil=False)
+        # brow ridge highlight line
+        a, b = ap(Hm, (HC[0] - 1.0, HC[1] - 3.2)), ap(Hm, (HC[0] + 4.0, HC[1] - 3.4))
+        c.img[c.taper([a, b], 0.16, 0.16)] = (110, 40, 90, 255)
+    else:
+        c.flat(c.poly([(x, y - 0.9) for x, y in apl(Hm, BROW_P)]), BROW, sil=False)
 
 
 def draw_head(c, Hm, p):
@@ -453,84 +524,118 @@ def draw_head(c, Hm, p):
     cm = c.poly(apl(Hm, COMB_P))
     c.paint(cm, COMB, shade=1, hl=1, rim=0)
     c.img[c.poly(apl(Hm, COMB_SHADE)) & cm] = COMB['shadow']
-    c.paint(c.poly(apl(Hm, SKULL)), HACK, shade=1, hl=1, rim=1)
+    # comb texture: small bumps catching the light, darker base
+    for q in ((3.6, -7.2), (1.6, -9.6), (-0.6, -9.2), (-2.8, -8.6), (-4.6, -7.4), (0.6, -6.4), (-1.8, -6.0), (2.6, -5.6)):
+        bm = c.ell(ap(Hm, (HC[0] + q[0], HC[1] + q[1])), 0.38, 0.38) & cm
+        c.img[bm] = COMB['light']
+    base = c.taper(apl(Hm, [(HC[0] + 4.4, HC[1] - 4.3), (HC[0] - 6.4, HC[1] - 5.3)]), 0.45, 0.45) & cm
+    c.img[base] = COMB['shadow']
+    sk = c.poly(apl(Hm, SKULL))
+    c.paint(sk, HACK, shade=1, hl=1, rim=1)
+    for i in range(4):                       # small nape feathers behind the comb
+        b0 = ap(Hm, (HC[0] - 1.0 - i * 0.9, HC[1] - 3.6 + i * 0.7))
+        tp = ap(Hm, (HC[0] - 4.6 - i * 0.8, HC[1] - 2.4 + i * 1.1))
+        strand(c, b0, lerp(b0, tp, 0.5), tp, 0.7, 0.2, HACK2 if i % 2 else HACK, rachis=False)
     c.paint(c.poly(apl(Hm, FACE)), SKIN, shade=1, hl=0, rim=0)
-    c.paint(c.poly(apl(Hm, WATTLE_B)), SKIN, shade=1, hl=0, rim=0)
+    wb = c.poly(apl(Hm, WATTLE_B))
+    c.paint(wb, SKIN, shade=1, hl=0, rim=0)
     # beak (lower mandible opens about its hinge)
     piv = ap(Hm, BEAK_PIV)
     Mb = R(p['beak'], piv)
     Mu = R(-p['beak'] * 0.35, piv)
-    c.paint(c.poly(apl(Mb, apl(Hm, BEAK_L))), BEAK, shade=1, hl=0, rim=0)
-    if p['beak'] > 6:                       # open mouth: dark gape + tongue
+    lm = c.poly(apl(Mb, apl(Hm, BEAK_L)))
+    c.paint(lm, BEAK, shade=1, hl=0, rim=0)
+    if p['beak'] > 6:                        # open mouth: dark gape + tongue
         gp = [piv, ap(Mu, ap(Hm, (HC[0] + 8.0, HC[1] + 0.4))), ap(Mb, ap(Hm, (HC[0] + 7.4, HC[1] + 1.0)))]
         c.flat(c.poly(gp), (54, 8, 36, 255))
+        tg = c.taper([piv, lerp(piv, ap(Mb, ap(Hm, (HC[0] + 6.4, HC[1] + 0.9))), 0.8)], 0.45, 0.3) & c.poly(gp)
+        c.img[tg] = (190, 70, 130, 255)
     um = c.poly(apl(Mu, apl(Hm, BEAK_U)))
     c.paint(um, BEAK, shade=1, hl=1, rim=0)
-    tip = c.ell(ap(Mu, ap(Hm, (HC[0] + 9.2, HC[1] + 1.4))), 1.1, 1.1) & um
-    c.img[tip] = BEAK['line']
-    c.paint(c.poly(apl(Hm, WATTLE_F)), SKIN, shade=1, hl=1, rim=0)
-    # battle scar across the cheek (drawn before the eye so the eye stays clean)
+    tipm = c.ell(ap(Mu, ap(Hm, (HC[0] + 9.2, HC[1] + 1.4))), 1.1, 1.1) & um
+    c.img[tipm] = BEAK['line']
+    nos = c.ell(ap(Mu, ap(Hm, (HC[0] + 5.6, HC[1] - 1.5))), 0.42, 0.28) & um
+    c.img[nos] = BEAK['line']
+    ml = c.taper(apl(Mu, apl(Hm, [(HC[0] + 4.4, HC[1] + 0.3), (HC[0] + 7.6, HC[1] + 0.6)])), 0.15, 0.15) & um
+    c.img[ml] = BEAK['shadow']
+    hk = c.ell(ap(Mu, ap(Hm, (HC[0] + 8.6, HC[1] - 0.6))), 0.35, 0.35) & um
+    c.img[hk] = (255, 255, 255, 255)
+    wf = c.poly(apl(Hm, WATTLE_F))
+    c.paint(wf, SKIN, shade=1, hl=1, rim=0)
+    for a, b in (((3.6, 2.8), (4.6, 4.2)), ((3.2, 4.6), (4.4, 5.8))):     # wattle wrinkles
+        c.img[c.taper(apl(Hm, [(HC[0] + a[0], HC[1] + a[1]), (HC[0] + b[0], HC[1] + b[1])]), 0.15, 0.15) & wf] = SKIN['shadow']
+    # old battle scar across the cheek (under the eye so the eye stays clean)
     a, b = apl(Hm, SCAR_P)
-    sc = c.taper([a, b], 0.35, 0.3)
+    sc = c.taper([a, b], 0.26, 0.22)
     c.img[sc & (c.img[..., 3] > 0)] = SCAR
-    # eye: hand-placed pixels (readable at 1x)
-    ex, ey = ap(Hm, EYE)
-    cx, cy = int(round(OX + ex)), int(round(OY + ey))
-    for (dx, dy), k in EYE_STAMPS.get(e, EYE_STAMPS['angry']).items():
-        x, y = cx + dx, cy + dy
-        if 0 <= x < c.w and 0 <= y < c.h:
-            c.img[y, x] = EYE_COL[k]
+    draw_eye(c, Hm, p['eye'])
 
 
 def draw_hackles(c, U, Hm, p, front):
     f = p['flow']
     if not front:
-        for i in range(10):
-            t = i / 9
-            base = ap(Hm, lerp((9.4, -54.2), (5.6, -45.0), t))
-            tip = ap(U, (lerp((3.4, -37.8), (-5.5, -36.6), t)[0] - f * 0.8, lerp((3.4, -37.8), (-5.5, -36.6), t)[1]))
+        for i in range(18):
+            t = i / 17
+            jit = ((i * 7) % 5 - 2) * 0.35
+            base = ap(Hm, lerp((9.6, -54.6), (5.4, -44.6), t))
+            tp0 = lerp((3.6, -37.6), (-6.0, -36.4), t)
+            tip = ap(U, (tp0[0] - f * 0.8 + jit, tp0[1] + abs(jit) * 0.6))
             mid = lerp(base, tip, 0.5)
-            ctrl = (mid[0] - 3.6 - f * 0.5, mid[1] - 0.8)
-            strand(c, base, ctrl, tip, 1.9, 0.3, HACK if i % 2 else HACK2, rim=1)
+            ctrl = (mid[0] - 3.4 - f * 0.5 + jit * 0.5, mid[1] - 0.8)
+            strand(c, base, ctrl, tip, 1.55, 0.25, HACK if i % 2 else HACK2, rim=1)
     else:
-        for i in range(5):
-            t = i / 4
-            base = ap(Hm, lerp((13.2, -47.2), (10.2, -44.6), t))
-            tip = ap(U, lerp((10.6, -36.8), (7.4, -34.4), t))
+        for i in range(8):
+            t = i / 7
+            base = ap(Hm, lerp((13.4, -47.4), (10.0, -44.4), t))
+            tip = ap(U, lerp((10.8, -36.6), (7.0, -34.0), t))
             mid = lerp(base, tip, 0.5)
-            strand(c, base, (mid[0] + 1.6, mid[1]), tip, 1.7, 0.35, HACK2 if i % 2 else HACK)
+            strand(c, base, (mid[0] + 1.5, mid[1]), tip, 1.4, 0.3, HACK2 if i % 2 else HACK)
 
 
 def draw_saddle(c, U, p):
     f = p['flow']
-    for i in range(7):
-        t = i / 6
-        base = ap(U, lerp((-1.0, -40.2), (-9.5, -38.4), t))
-        tip = ap(U, (lerp((-11.0, -31.4), (-16.6, -29.0), t)[0] - f * 0.6, lerp((-11.0, -31.4), (-16.6, -29.0), t)[1]))
+    for i in range(12):
+        t = i / 11
+        base = ap(U, lerp((-0.8, -40.3), (-9.8, -38.2), t))
+        tp0 = lerp((-10.8, -31.2), (-17.0, -28.8), t)
+        tip = ap(U, (tp0[0] - f * 0.6, tp0[1] + ((i * 3) % 4) * 0.25))
         mid = lerp(base, tip, 0.5)
-        strand(c, base, (mid[0] - 1.0, mid[1] - 1.6), tip, 1.8, 0.35, SADL if i % 2 else HACK, rim=1)
+        strand(c, base, (mid[0] - 1.0, mid[1] - 1.6), tip, 1.5, 0.3, SADL if i % 2 else HACK, rim=1)
 
 
 def draw_stars(c, U, Tm):
-    for i, s in enumerate(STARS):
+    pts = STARS + [(-9, -27), (-2, -31), (-12, -36), (5, -33), (-15, -31), (-31, -45), (-21, -57), (-27, -36)]
+    for i, s in enumerate(pts):
         q = ap(Tm if s[0] < -16 else U, s)
-        x, y = int(round(OX + q[0])), int(round(OY + q[1]))
-        if 0 <= x < W and 0 <= y < H and c.img[y, x, 3] > 0:
+        x, y = c.px(q)
+        if 1 <= x < c.w - 1 and 1 <= y < c.h - 1 and c.img[y, x, 3] > 0:
             v = c.img[y, x, :3].astype(int)
             if v.sum() < 330:                         # only on dark plumage
                 c.img[y, x] = STAR
+                if i % 3 == 0:                        # a few twinkle crosses
+                    for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        if c.img[y + ddy, x + ddx, 3] > 0 and c.img[y + ddy, x + ddx, :3].astype(int).sum() < 330:
+                            c.img[y + ddy, x + ddx] = (170, 160, 240, 255)
+
+
+def draw_body(c, U, p):
+    bm = c.poly(apl(U, BODY))
+    c.paint(bm, PLUM, shade=2, hl=1, rim=1)
+    br = c.poly(apl(U, BREAST))
+    c.img[br & (c.img[..., 3] > 0) & ~shift(br, 2 * c.k, -2 * c.k)] = PLUM['light']
+    scallops(c, U, bm, 5, PLUM, x0=-12.5, x1=9.5, y0=-37.6, dy=3.2, dx=3.0, r=1.25)
+    return bm
 
 
 def render(pose):
-    """-> (RGBA image W x H, grip point in frame px (x, y) or None)."""
+    """-> (RGBA image W x H at 2x, grip point in frame px (x, y) or None)."""
     p, G, U, Hn, Hm, Tm = build(pose)
     c = Canvas()
     if p['fwing'] == 'raise':
         draw_wing_raise(c, U, p, far=True)
     draw_tail(c, Tm, p)
     draw_leg(c, U, G, p['footB'], p['toeB'], True, p)
-    c.paint(c.poly(apl(U, BODY)), PLUM, shade=2, hl=1, rim=1)
-    c.img[c.poly(apl(U, BREAST)) & (c.img[..., 3] > 0) & ~shift(c.poly(apl(U, BREAST)), 2, -2)] = PLUM['light']
+    draw_body(c, U, p)
     draw_saddle(c, U, p)
     draw_leg(c, U, G, p['footF'], p['toeF'], False, p)
     if p['wing'] == 'fold':
@@ -545,7 +650,7 @@ def render(pose):
     grip = None
     if p['wing'] == 'grip':
         g = draw_wing_grip(c, U, G, p)
-        grip = (OX + g[0], OY + g[1])
+        grip = (OX + g[0] * K, OY + g[1] * K)
     c.outline()
     im = c.image()
     if p['mirror']:
@@ -558,5 +663,5 @@ def render(pose):
 if __name__ == '__main__':
     import sys
     im, g = render({})
-    im.resize((W * 6, H * 6), Image.NEAREST).save(sys.argv[1] if len(sys.argv) > 1 else '/tmp/scy_rest.png')
+    im.resize((W * 3, H * 3), Image.NEAREST).save(sys.argv[1] if len(sys.argv) > 1 else '/tmp/scy_rest.png')
     print('ok', im.size, 'grip', g)
