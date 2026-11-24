@@ -5,19 +5,24 @@ parts (head + ears + snout, eyes, body, bandana, tail, arms, feet) and re-posed 
 64-px-scale pixel art with 1 px outlines, i.e. the same size/look as the game's fighters
 (benchmark: Erbito Black Rose, `o_plr_erbitobkr`).
 
-Animated preview: `art/showcase.py` renders a GIF of the whole kit from the built assets (it uses Erbito Black Rose sprites extracted from game.droid as the sparring dummy).
-
 ## Moves
 
 | Input | Move |
 |---|---|
-| Attack A (combo 1) | **Jab → Cross → Hook → Uppercut** (uppercut launches + knocks down) |
-| Attack B (combo 2) | **Jab → Cross → Hook → Uppercut** (same punches, arcane violet hits, +10% dmg) |
-| Down + attack / air attack | crouching jab / air punch |
+| Attack A | **Dark flame punches**: jab -> cross -> hook -> flame flurry (5 quick hits) -> uppercut (launches, knocks down) |
+| Attack B | **Blue flame kicks**: front kick -> roundhouse -> spinning back kick -> axe kick (heel slams down, knockdown) |
+| Down + attack A / B | crouching jab / flame sweep (trips) |
+| Air attack A / B | air punch / diving flame kick |
 | Shield | crouches and **blocks with both hands** |
-| Skill | **Formic Arcana** — rune circle, then a swarm of glowing magic ants sweeps forward (multi-hit) and bursts in a rune explosion (knockdown) |
-| Down + skill | **Starlight Lance** — star orb charges on the snout, a helix star-beam fires across the screen (multi-hit) and ends in a nova (knockdown) |
-| **Shield + skill together** (full energy bar) | **Bone Breaker** — Jeff dashes and grabs the nearest enemy, X-ray cutscene (arm CRACK, ribs SNAP, spine CRUNCH, skull CRACK, K.O.), the opponent's HP is set to **0** |
+| Skill | **Meteor Shower**: three black holes tear open in the sky and rain meteors wrapped in dark blue flame onto the ground in front of him |
+| Down + skill | **Abyss Palm**: his palm opens a black hole that drags the opponent in, then his punch detonates it |
+| **Shield + skill together** (full energy bar) | **Bone Breaker**: Jeff dashes and grabs the nearest enemy, X-ray cutscene (arm CRACK, ribs SNAP, spine CRUNCH, skull CRACK, K.O.), the opponent's HP is set to **0** |
+
+The flame is blue fire with darkness flowing inside it, in pixel art (`art/flame.py`: a 5-colour
+palette from black-indigo to white-cyan, ordered dithering, hard edges, a dark rim). The game draws
+it on whichever fist or foot is burning in the current frame; `art/anims.py` records those points
+per frame. The black holes and meteors use the same pixel style. Jeff himself keeps the original
+look from the drawing.
 
 Stats (edit in `src/jeff.c`, `gml_Object_o_jeff_Create_0`): HP 2300, damage 46, walk 3.2, run 7.4,
 skill costs 55 / 45. The special needs a full energy bar and costs all of it.
@@ -45,9 +50,10 @@ technique, chained on top of the mod:
 * `build/elfpatch.py` — adds two PT_LOAD segments (code @ `0x3600000`, data/bss @ `0x3700000`),
   relocates the program header table and patches 4 branches (each verified first).
 * `build/droidpatch.py` — adds object `o_jeff` (#685, parent `o_parent_character`) to `game.droid`.
-* `art/` — everything is generated: `anims.py` (body), `vfx.py` (skills), `cutscene.py`
-  (Bone Breaker), `face.py` (portrait card using the game's card frame), `sfx.py` (bone cracks,
-  swarm, beam, KO). Other sounds are the game's own.
+* `art/` — everything is generated: `anims.py` (body, including the kicking legs from `rig.py`),
+  `flame.py` (the dark flame, meteors and black holes), `vfx.py` (Bone Breaker effects),
+  `cutscene.py` (Bone Breaker), `face.py` (portrait card using the game's card frame), `sfx.py`
+  (bone cracks, KO, flame, meteor, black hole). Other sounds are the game's own.
 
 ## Build
 
@@ -122,6 +128,25 @@ parallaxes as the camera pans). If a device never runs Draw Begin, the normal Dr
 
 In the cutscene's last act the rooster is drawn live from his 2x sprites, so he stays sharp on any
 screen size. Offline only, same as Jeff.
+
+## Crash in the Scyther mirror match
+
+Reported from play: Scyther vs Scyther, the game froze and closed as Event Horizon Cleave slammed
+down. Under the emulator, our code never looped or touched bad memory in that scene: a fuzz test
+with two Scythers and Jeff using random moves ran more than 12,000 frames without a fault. So the
+fix hardens what the code asks the engine to do:
+
+* sounds: our OGGs are streamed (`audio_create_stream`; the engine exports no way to load them into
+  memory), and every playing copy decodes on its own thread. A mirror match fires them twice as
+  often. Now a stream never plays twice at once, and at most 3 to 4 of ours play together;
+* triangle strips: they are only sent when they have at least 4 finite vertices, and each draw has
+  a vertex budget;
+* angle and sine helpers are bounded, so no loop can spin on a huge or NaN value;
+* Create always starts from a clean state, because instances destroyed by a room change never run
+  Destroy and their slot could be matched again;
+* an unused 4 MB scythe texture is gone.
+
+This is not confirmed on a phone yet.
 
 ## CPU opponents
 

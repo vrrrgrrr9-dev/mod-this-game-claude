@@ -28,6 +28,7 @@ FUNCS = {  # C name -> mangled engine symbol
     'F_AudioCreateStream': '_Z19F_AudioCreateStreamR6RValueP9CInstanceS2_iPS_',
     'F_AudioPlaySound': '_Z16F_AudioPlaySoundR6RValueP9CInstanceS2_iPS_',
     'F_AudioStopSound': '_Z16F_AudioStopSoundR6RValueP9CInstanceS2_iPS_',
+    'F_AudioIsPlaying': '_Z16F_AudioIsPlayingR6RValueP9CInstanceS2_iPS_',
     'F_AudioSoundPitch': '_Z17F_AudioSoundPitchR6RValueP9CInstanceS2_iPS_',
     'F_GPUSetBlendMode': '_Z17F_GPUSetBlendModeR6RValueP9CInstanceS2_iPS_',
     'F_InstanceCreateDepth': '_Z21F_InstanceCreateDepthR6RValueP9CInstanceS2_iPS_',

@@ -85,6 +85,35 @@ def ko(dur=1.6):
     return np.tanh((boom + hit + tail + crack) * 1.3)
 
 
+def flame(dur=0.42):
+    """a gust of fire: bright crackling noise swelling and fading, with a low roar under it."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    roar = bandnoise(n, 90, 700) * 1.4
+    crackle = bandnoise(n, 1800, 6000) * (rng.random(n) < 0.02) * 6
+    e = np.sin(np.pi * np.clip(t / dur, 0, 1)) ** 0.7
+    x = (roar + bandnoise(n, 400, 2600) + crackle) * e
+    return x / max(1e-6, np.abs(x).max()) * 0.8
+
+
+def meteor(dur=0.9):
+    """falling whistle into a heavy impact."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    f = 1400 * np.exp(-t * 2.2) + 180
+    whistle = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.clip(1 - t / 0.55, 0, 1) * 0.35
+    hit = (bandnoise(n, 40, 900) * 2 + np.sin(2 * np.pi * 52 * t) * 0.8) * np.where(t > 0.5, np.exp(-(t - 0.5) / 0.18), 0)
+    x = whistle + hit
+    return x / max(1e-6, np.abs(x).max()) * 0.85
+
+
+def hole(dur=1.4):
+    """the black hole: a deep wobbling hum with a rising suck of air."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    hum = np.sin(2 * np.pi * (46 + 6 * np.sin(2 * np.pi * 3 * t)) * t) + 0.5 * np.sin(2 * np.pi * 92 * t)
+    suck = bandnoise(n, 200, 1500) * np.clip(t / dur, 0, 1) ** 2
+    x = (hum * 0.7 + suck) * np.minimum(1, t / 0.08) * np.minimum(1, (dur - t) / 0.2)
+    return x / max(1e-6, np.abs(x).max()) * 0.8
+
+
 def write_ogg(x, path):
     x = x / max(1e-6, np.abs(x).max()) * 0.92
     pcm = (x * 32767).astype(np.int16)

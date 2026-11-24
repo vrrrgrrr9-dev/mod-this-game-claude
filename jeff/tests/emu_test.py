@@ -307,6 +307,7 @@ STUB = {
     'F_LayerGetAll': st_layer_all, 'F_LayerGetAllElements': st_layer_elems, 'F_LayerGetElementType': st_eltype,
     'F_LayerSetVisible': st_layer_vis, 'F_PlaceMeeting': st_cam(0.0), 'F_CollisionPoint': st_cam(0.0),
     'F_DrawSpriteStretchedExt': st_stretched,
+    'F_AudioIsPlaying': st_cam(0.0),
     'F_LayerGetDepth': st_layer_depth, 'F_DrawSpritePartExt': st_part, 'F_DrawSpritePos': st_spritepos,
     'F_DrawPrimitiveBegin': st_prim_begin, 'F_DrawVertexColor': st_vertex, 'F_DrawPrimitiveEnd': st_prim_end,
 }
@@ -373,7 +374,7 @@ call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
 check(menu.get('char_name') == 'Jeff', 'char_name = Jeff')
 check(menu.get('char_obj') == 685, 'char_obj = 685 (o_jeff)')
 check(menu.get('char_face') in sprites and sprites[menu.get('char_face')][0] == 'jeff_face.png', 'char_face = jeff_face.png sprite')
-check(len(sprites) == 38 and len(sounds) == 6, f'loaded {len(sprites)} sprites / {len(sounds)} sounds')
+check(len(sprites) == 49 and len(sounds) == 7, f'loaded {len(sprites)} sprites / {len(sounds)} sounds')
 check(any(c[0] == 'object_set_sprite' and c[1] == 685 for c in calls), 'object_set_sprite(o_jeff, preview)')
 calls.clear()
 rv_write(argrv, 7.0)
@@ -426,48 +427,73 @@ jeff.set('parent', ctrl.id)
 call('gml_Object_o_jeff_Alarm_0', jeff.ptr, jeff.ptr)
 check(sprites.get(ctrl.get('spr_face'), ('',))[0] == 'jeff_face.png', 'controller spr_face = jeff_face')
 
-print('[5] combos: jab, cross, hook, uppercut (attack A and B)')
-for start, label in ((1, 'A'), (50, 'B')):
+print('[5] combos: dark flame punches (A) and blue flame kicks (B)')
+for start, label, want in ((1, 'A', ['jeff_jab.png', 'jeff_cross.png', 'jeff_hook.png', 'jeff_flurry.png', 'jeff_uppercut.png']),
+                           (50, 'B', ['jeff_kick1.png', 'jeff_kick2.png', 'jeff_kick3.png', 'jeff_kick4.png'])):
     calls.clear(); jeff.set('combo_next', start)
     call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
     check(ctrl.get('is_attacking') == 1, f'attack {label}: is_attacking set when the combo starts')
     seq = []
-    for _ in range(4):
+    for _ in range(len(want)):
         cn = [c for c in calls if c[0] == 'scr_combo_normal']
-        if cn: seq.append(sprites[int(cn[-1][2][0][1])][0])
+        seq.append(sprites[int(cn[-1][2][0][1])][0] if cn else sprites.get(int(jeff.get('sprite_index')), ('',))[0])
+        hits = len([c for c in calls if c[0] == 'instance_create' and c[1] == 224])
+        if seq[-1] == 'jeff_flurry.png':                   # the flurry runs on Jeff's own step
+            for _ in range(26): call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+            check(len([c for c in calls if c[0] == 'instance_create' and c[1] == 224]) - hits >= 5, 'flame flurry: 5 quick hits')
         calls.clear()
         jeff.set('combo_nextcombo', 1)
         call('gml_Object_o_jeff_Alarm_2', jeff.ptr, jeff.ptr)
-    check(seq == ['jeff_jab.png', 'jeff_cross.png', 'jeff_hook.png', 'jeff_uppercut.png'], f'attack {label}: {seq}')
-    check(ctrl.get('is_attacking') == 0 and jeff.get('combo_next') == -1, f'attack {label}: uppercut ends the combo, is_attacking cleared')
+    check(seq == want, f'attack {label}: {seq}')
+    check(ctrl.get('is_attacking') == 0 and jeff.get('combo_next') == -1, f'attack {label}: the finisher ends the combo, is_attacking cleared')
 
-print('[6] skill 1 (ant swarm)')
-calls.clear(); jeff.set('combo_next', 100)
+print('[5b] the burning fist / foot')
+spr_id = {v[0]: k for k, v in sprites.items()}
+calls.clear()
+jeff.set('sprite_index', spr_id['jeff_kick2.png']); jeff.set('image_index', 1); jeff.set('image_speed', 0)
+call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+jeff.set('sprite_index', spr_id['jeff_kick2.png']); jeff.set('image_index', 1)
+call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+drawn = {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
+check({'jeff_jf_fist.png', 'jeff_jf_trail.png', 'jeff_jf_burst.png'} <= drawn, f'dark flame round the kicking foot + a flare as it lands')
+plays = [c for c in calls if c[0] == 'play']
+calls.clear()
+for _ in range(3):
+    call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+    jeff.set('sprite_index', spr_id['jeff_kick2.png']); jeff.set('image_index', 1)
+check(sum(1 for c in calls if c[0] == 'play') == 0, 'the flare fires once per burning frame, not every step')
+jeff.set('sprite_index', spr_id['jeff_stand.png']); jeff.set('image_index', 0)
+
+ectrl = new_inst(431); ectrl.set('plr_team', 2); ectrl.set('plr_hp', 1900); ectrl.set('is_dead', 0)
+enemy = new_inst(523); enemy.set('x', 520); enemy.set('y', 300); enemy.set('parent', ectrl.id)
+
+print('[6] skill 1: Meteor Shower')
+calls.clear(); jeff.set('combo_next', 100); jeff.set('x', 400)
 call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
-for t in range(110):
+for t in range(130):
     call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
     call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
 hb = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-check(len(hb) >= 12, f'swarm hitboxes created: {len(hb)}')
-check(hb and hb[-1][2] > 400 + 150, f'swarm travelled to x={hb[-1][2]:.0f}' if hb else 'no hitbox')
+check(len(hb) >= 9, f'meteor impacts: {len(hb)} hitboxes')
+check(hb and all(abs(c[3] - 286) < 2 for c in hb) and min(c[2] for c in hb) > 430, 'meteors land on the ground in front of him')
 drawn = {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
-check({'jeff_s1_circle.png', 'jeff_s1_swarm.png', 'jeff_s1_burst.png'} <= drawn, 'circle/swarm/burst drawn')
+check({'jeff_jf_portal.png', 'jeff_jf_meteor.png', 'jeff_jf_crater.png', 'jeff_jf_aura.png'} <= drawn, 'black holes in the sky, flaming meteors, craters, aura drawn')
 check(not any(c[0] == 'BAD_SPRITE_DRAW' for c in calls), 'no invalid sprite draws')
 
-print('[7] skill 2 (starlight lance)')
-calls.clear(); jeff.set('combo_next', 110)
+print('[7] skill 2: Abyss Palm (black hole)')
+calls.clear(); jeff.set('combo_next', 110); jeff.set('x', 400); enemy.set('x', 540)
 call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
 for t in range(100):
     call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
     call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
 hb = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-check(len(hb) >= 8, f'beam hitboxes: {len(hb)}')
+check(len(hb) >= 6, f'black hole hitboxes: {len(hb)}')
+check(enemy.get('x') < 540 - 5, f'opponent dragged toward the hole (x 540 -> {enemy.get("x"):.0f})')
 drawn = {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
-check({'jeff_s2_orb.png', 'jeff_s2_beam.png', 'jeff_s2_tip.png', 'jeff_s2_nova.png'} <= drawn, 'orb/beam/tip/nova drawn')
+check({'jeff_jf_bh.png', 'jeff_jf_bhring_b.png', 'jeff_jf_bhring_f.png', 'jeff_jf_burst.png', 'jeff_jf_rock.png'} <= drawn, 'black hole core, flame disk (back/front), rocks, detonation drawn')
 
 print('[8] special: Bone Breaker')
-ectrl = new_inst(431); ectrl.set('plr_team', 2); ectrl.set('plr_hp', 1900); ectrl.set('is_dead', 0)
-enemy = new_inst(523); enemy.set('x', 520); enemy.set('y', 300); enemy.set('parent', ectrl.id)
+enemy.set('x', 520); jeff.set('x', 400); ectrl.set('plr_hp', 1900)
 calls.clear()
 ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
 call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)

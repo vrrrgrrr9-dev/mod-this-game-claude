@@ -51,7 +51,7 @@ def get_apk(args, work):
 def build_native(work, libyoyo, assets, droid):
     gen = os.path.join(work, 'gen'); os.makedirs(gen, exist_ok=True)
     import manifest
-    open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header())
+    open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header(assets))
     run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'manifest.py'), assets,
          os.path.join(gen, 'scyther_assets.h')])
     run([sys.executable, '-I', os.path.join(HERE, 'gen_engine.py'), libyoyo,

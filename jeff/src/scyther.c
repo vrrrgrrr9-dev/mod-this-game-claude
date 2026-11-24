@@ -186,22 +186,39 @@ static unsigned g_rng = 0x51ed2701u;
 static unsigned rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static float frand(float a, float b) { return a + (b - a) * (float)(rnd() & 0xffff) / 65535.0f; }
 static float fabsf_(float v) { return v < 0 ? -v : v; }
-static float wrap360(float a) { while (a < 0) a += 360; while (a >= 360) a -= 360; return a; }
+static bool finite_(float v) { return v == v && v < 1e7f && v > -1e7f; }
+static float wrap360(float a) {                   /* bounded: no loop can spin on a huge/NaN value */
+    if (!finite_(a)) return 0;
+    a -= 360.0f * (float)(int)(a / 360.0f);
+    if (a < 0) a += 360;
+    if (a >= 360) a -= 360;
+    return a;
+}
 static float wrap180(float a) { a = wrap360(a); return a > 180 ? a - 360 : a; }
 static float sinf_(float x) {                     /* small, freestanding sine (radians) */
-    while (x > PI_F) x -= 2 * PI_F;
-    while (x < -PI_F) x += 2 * PI_F;
+    if (!finite_(x)) return 0;
+    x -= 2 * PI_F * (float)(int)(x / (2 * PI_F));
+    if (x > PI_F) x -= 2 * PI_F;
+    if (x < -PI_F) x += 2 * PI_F;
     float x2 = x * x;
     return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72))));
 }
 static float cosf_(float x) { return sinf_(x + PI_F / 2); }
 static float sqrtf_(float x) { return x > 0 ? __builtin_sqrtf(x) : 0; }
 
-static void play(CInstance *s, int snd, double pitch) {
-    if (snd < 0) return;
+static bool fcall1_audio(CInstance *s, double v) {
+    RValue r = rv_undef(); RValue a = rv_real(v);
+    F_AudioIsPlaying(&r, s, s, 1, &a);
+    bool b = rv_num(&r) > 0.5;
+    rv_free(&r);
+    return b;
+}
+static double play_v(CInstance *s, int snd, double pitch) {
+    if (snd < 0) return 0;
     RValue r = rv_undef();
     RValue a[3] = { rv_real(snd), rv_real(10), rv_real(0) };
     F_AudioPlaySound(&r, s, s, 3, a);
+    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? 0 : rv_num(&r);
     if (pitch != 1.0 && (r.kind & KIND_MASK) != VALUE_UNDEFINED) {
         RValue r2 = rv_undef();
         RValue b[2] = { r, rv_real(pitch) };
@@ -209,8 +226,25 @@ static void play(CInstance *s, int snd, double pitch) {
         rv_free(&r2);
     }
     rv_free(&r);
+    return v;
 }
-static void play_c(CInstance *s, int which, double pitch) { play(s, g_scy_snd[which], pitch); }
+static void play(CInstance *s, int snd, double pitch) { play_v(s, snd, pitch); }
+static bool voice_playing(CInstance *s, double v) {
+    if (v <= 0) return false;
+    return fcall1_audio(s, v);
+}
+/* our sounds are OGG files opened with audio_create_stream: every copy that plays decodes on its
+   own thread.  A mirror match fires them twice as often, so: never two copies of the same stream at
+   once, and at most 4 of ours alive (the game's own sounds are not limited). */
+static double g_scy_voice[SCS_COUNT];
+static void play_c(CInstance *s, int which, double pitch) {
+    if (which < 0 || which >= SCS_COUNT || g_scy_snd[which] < 0) return;
+    if (voice_playing(s, g_scy_voice[which])) return;
+    int alive = 0;
+    for (int k = 0; k < SCS_COUNT; k++) if (voice_playing(s, g_scy_voice[k])) alive++;
+    if (alive >= 4) return;
+    g_scy_voice[which] = play_v(s, g_scy_snd[which], pitch);
+}
 
 static void blend(CInstance *s, int mode) {
     RValue r = rv_undef(); RValue a = rv_real(mode);
@@ -260,6 +294,25 @@ static void vtx(CInstance *s, float x, float y, int col, float a) {
     RValue v[4] = { rv_real(x), rv_real(y), rv_real(col), rv_real(a < 0 ? 0 : (a > 1 ? 1 : a)) };
     F_DrawVertexColor(&r, s, s, 4, v);
     rv_free(&r);
+}
+/* a triangle strip is collected first and only sent when it is a real strip (>= 4 vertices, all
+   finite), and each Draw has a vertex budget */
+#define STRIP_MAX 64
+typedef struct { int n; float x[STRIP_MAX], y[STRIP_MAX], a[STRIP_MAX]; int col[STRIP_MAX]; } Strip;
+static int g_vtx_budget;
+static void strip_add(Strip *st, float x, float y, int col, float a) {
+    if (st->n >= STRIP_MAX) return;
+    st->x[st->n] = x; st->y[st->n] = y; st->col[st->n] = col; st->a[st->n] = a; st->n++;
+}
+static void strip_flush(CInstance *s, Strip *st) {
+    int n = st->n;
+    st->n = 0;
+    if (n < 4 || n > g_vtx_budget) return;
+    for (int i = 0; i < n; i++) if (!finite_(st->x[i]) || !finite_(st->y[i])) return;
+    g_vtx_budget -= n;
+    prim_begin(s);
+    for (int i = 0; i < n; i++) vtx(s, st->x[i], st->y[i], st->col[i], st->a[i]);
+    prim_end(s);
 }
 static void camera_shake(double amount) {
     RValue cam = rv_real(OBJ_CAMERA);
@@ -552,11 +605,11 @@ static void draw_trail(CInstance *s, Scy *j, int which, int front) {
     for (int b = 0; b < 2; b++) {
         int sgn = b ? -1 : 1;
         {
-            int open = 0;
+            Strip st; st.n = 0;
             for (int k = 0; k < N_TRAIL - 1; k++) {
                 const Tsmp *p0 = &buf[(head - k + N_TRAIL) % N_TRAIL];
                 const Tsmp *p1 = &buf[(head - k - 1 + N_TRAIL) % N_TRAIL];
-                if (!p0->on || !p1->on || p0->mode != p1->mode) { if (open) { prim_end(s); open = 0; } continue; }
+                if (!p0->on || !p1->on || p0->mode != p1->mode) { strip_flush(s, &st); continue; }
                 float d = wrap180(p1->ang - p0->ang);
                 for (int q = 0; q < SUB; q++) {
                     float u = (float)q / SUB;
@@ -567,13 +620,12 @@ static void draw_trail(CInstance *s, Scy *j, int which, int front) {
                     float ax, ay, az, bx, by, bz;
                     blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_MID, sgn, &ax, &ay, &az);
                     blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_OUT, sgn, &bx, &by, &bz);
-                    if (((az + bz) >= 0) != (front != 0)) { if (open) { prim_end(s); open = 0; } continue; }
-                    if (!open) { prim_begin(s); open = 1; }
-                    vtx(s, ax, ay, C_DEEP, al * 0.12f);
-                    vtx(s, bx, by, C_CORE, al);
+                    if (((az + bz) >= 0) != (front != 0)) { strip_flush(s, &st); continue; }
+                    strip_add(&st, ax, ay, C_DEEP, al * 0.12f);
+                    strip_add(&st, bx, by, C_CORE, al);
                 }
             }
-            if (open) prim_end(s);
+            strip_flush(s, &st);
         }
     }
 }
@@ -585,7 +637,7 @@ static void draw_ring(CInstance *s, const Ring *r, int front) {
     float w = r->w * (1.15f - 0.65f * k);
     const int SEG = 18;
     for (int band = 0; band < 2; band++) {
-        prim_begin(s);
+        Strip st; st.n = 0;
         for (int i = 0; i <= SEG; i++) {
             float th = (front ? 0.0f : PI_F) + PI_F * i / SEG;   /* lower half = near half */
             float c = cosf_(th), sn = sinf_(th);
@@ -597,10 +649,10 @@ static void draw_ring(CInstance *s, const Ring *r, int front) {
             float L = sqrtf_(nx * nx + ny * ny);
             if (L < 1e-3f) L = 1;
             nx /= L; ny /= L;
-            if (band == 0) { vtx(s, px - nx * ww, py - ny * ww, r->col, 0); vtx(s, px, py, C_CORE, aa); }
-            else { vtx(s, px, py, C_CORE, aa); vtx(s, px + nx * ww * 0.7f, py + ny * ww * 0.7f, r->col, 0); }
+            if (band == 0) { strip_add(&st, px - nx * ww, py - ny * ww, r->col, 0); strip_add(&st, px, py, C_CORE, aa); }
+            else { strip_add(&st, px, py, C_CORE, aa); strip_add(&st, px + nx * ww * 0.7f, py + ny * ww * 0.7f, r->col, 0); }
         }
-        prim_end(s);
+        strip_flush(s, &st);
     }
 }
 static void draw_debris(CInstance *s, Scy *j, int front) {
@@ -620,7 +672,7 @@ static void draw_debris(CInstance *s, Scy *j, int front) {
 void gml_Object_o_scyther_Create_0(CInstance *s, CInstance *o) {
     scyther_load_assets(s);
     gml_Object_o_parent_character_Create_0(s, o);        /* event_inherited() */
-    slot(s, true);
+    scy_reset(slot(s, true), s);                          /* fresh state even if a stale slot matched */
     iset(s, &g_VAR_parent, 0);
     iset_b(s, &g_VAR_local_runleft, false);
     iset(s, &g_VAR_combo_next, -1);
@@ -1623,7 +1675,7 @@ typedef struct { float l, r, t; } Slab;
 
 static void draw_slab(CInstance *s, const Slab *b, float cx, float vx, float vw, float fade) {
     float x0 = b->l > vx - 80 ? b->l : vx - 80, x1 = b->r < vx + vw + 80 ? b->r : vx + vw + 80;
-    if (x1 - x0 < 1) return;
+    if (!finite_(x0) || !finite_(x1) || !finite_(b->t) || x1 - x0 < 1 || x1 - x0 > 4000) return;
     float T = b->t;
     /* top face, in 64 px chunks aligned to the world so the texture stays put */
     int m0 = (int)(x0 / 64.0f); if (x0 < 0) m0--;
@@ -1705,9 +1757,11 @@ static void draw_void(CInstance *s, Scy *j) {
         float sc = ROCK_S[i] / 100.0f;
         float par = 0.12f + sc * 0.25f;
         float span = vw + 160;
-        float rx = ROCK_X[i] - vx * par;
-        while (rx < -80) rx += span;
-        while (rx > span - 80) rx -= span;
+        float rx = ROCK_X[i] - vx * par + 80;
+        if (!finite_(rx)) rx = 0;
+        rx -= span * (float)(int)(rx / span);
+        if (rx < 0) rx += span;
+        rx -= 80;
         float bob = sinf_(j->void_t * 0.025f + i * 1.7f) * 3.0f;
         spr(s, SC_VOID_ROCKS, (float)(i % 8), vx + rx, vy + ROCK_Y[i] * vh / 100.0f + bob, sc, sc, 0, sc < 0.6f ? C_DUSK : C_WHITE, fade);
     }
@@ -1847,6 +1901,7 @@ void gml_Object_o_scyther_Draw_0(CInstance *s, CInstance *o) {
     float xs = (float)sget(s, &g_VAR_image_xscale);
     bool pok = parent_ok(s);
     bool charging = pok && pget(s, &g_VAR_is_charging) > 0.5;
+    g_vtx_budget = 1600;
     if (j->void_on && j->void_drawn != j->aura_t) draw_void(s, j);   /* Draw Begin didn't run: draw it here */
 
     /* behind the body: far halves of rings / trails / swings / scythe, debris behind, aura, afterimages */

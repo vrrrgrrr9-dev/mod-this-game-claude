@@ -153,10 +153,80 @@ ANIMS['grab'] = [dict(rot=14, dx=20, dy=-6, footF=(60, -20, 20), footB=(-60, -10
 ANIMS['win'] = [dict(armF=F(905, 700, 48, 34), front_arm_over=True, head=(0, 0, -8), tail=(0, 0, 10)),
                 dict(dy=-12, armF=F(915, 650, 48, 34), front_arm_over=True, head=(0, -4, -10), tail=(0, 0, 14))]
 
+# --- dark flame moves (the flames themselves are drawn by the game at the hot fist / foot) ----
+GUARD = dict(armF=F(740, 900, 44, 32), armB=F(600, 930, 42, 30), front_arm_over=True)
+ANIMS['flurry'] = [dict(STANCE, rot=8, dx=12, eyes='angry', armF=F(945, 860, 50, 34), armB=F(560, 940, 44, 32), front_arm_over=True, hot='F'),
+                   dict(STANCE, rot=10, dx=14, eyes='angry', armB=F(935, 905, 50, 34), armF=F(640, 880, 44, 32), back_arm_over=True, hot='B'),
+                   dict(STANCE, rot=9, dx=12, eyes='angry', armF=F(955, 925, 52, 34), armB=F(580, 950, 44, 32), front_arm_over=True, hot='F'),
+                   dict(STANCE, rot=11, dx=15, eyes='angry', armB=F(945, 845, 52, 34), armF=F(650, 900, 44, 32), back_arm_over=True, hot='B')]
+ANIMS['kick1'] = [dict(GUARD, rot=-6, eyes='angry', kickF=(700, 1000, -20), tail=(0, 0, 6)),
+                  dict(rot=-14, eyes='angry', kickF=(935, 960, -35), armF=S(0, 0, -20), armB=S(0, 0, 30), hot='K'),
+                  dict(GUARD, rot=-6, eyes='angry', kickF=(780, 1060, -10))]
+ANIMS['kick2'] = [dict(rot=6, dx=-4, eyes='angry', kickF=(640, 960, 10), head=(0, 0, 4), tail=(0, 0, 20), armF=F(760, 880, 44, 32), front_arm_over=True),
+                  dict(rot=-22, dy=-10, eyes='angry', kickF=(905, 800, -60), tail=(0, 0, -20), armB=S(0, 0, 40), armF=S(0, -10, -40), hot='K'),
+                  dict(rot=-10, eyes='angry', kickF=(845, 880, -40), tail=(0, 0, -10), hot='K')]
+ANIMS['kick3'] = [dict(rot=12, dx=-8, eyes='angry', head=(-6, 0, -6), tail=(0, 0, 30), armF=S(0, 0, 30), armB=S(0, 0, -20)),
+                  dict(rot=-8, eyes='angry', tail=(0, 0, -50), kickB=(700, 980, -30), armF=S(0, 0, -20)),
+                  dict(rot=-24, dy=-6, eyes='angry', tail=(0, 0, -30), kickB=(945, 900, -70), armF=S(0, 0, -40), armB=S(0, 0, 40), hot='K'),
+                  dict(rot=-6, eyes='angry', kickB=(760, 1060, -20), armF=S(0, 0, -10))]
+ANIMS['kick4'] = [dict(rot=-18, eyes='angry', kickF=(760, 660, -100), armF=S(0, 0, -30), armB=S(0, 0, 40), hot='K'),
+                  dict(rot=-20, dy=-14, eyes='angry', kickF=(820, 620, -110), armF=S(0, 0, -40), armB=S(0, 0, 50), hot='K'),
+                  dict(rot=8, sy=0.92, eyes='angry', kickF=(865, 1130, 10), armF=S(0, 0, -10), armB=S(0, 0, 20), hot='K'),
+                  dict(rot=2, eyes='angry', kickF=(760, 1150, 0))]
+ANIMS['crouchkick'] = [dict(sy=0.8, rot=10, eyes='angry', kickF=(720, 1150, 0), armF=F(700, 1000, 42, 30)),
+                       dict(sy=0.78, rot=14, eyes='angry', kickF=(955, 1150, -10), armF=F(720, 1010, 42, 30), hot='K'),
+                       dict(sy=0.8, rot=8, eyes='angry', kickF=(820, 1150, 0), armF=F(700, 1000, 42, 30))]
+ANIMS['airkick'] = [dict(dy=-24, rot=18, eyes='angry', kickF=(860, 980, 10), footB=(-20, -40, -20), armF=S(0, 0, -40), armB=S(0, 0, 40), hot='K'),
+                    dict(dy=-24, rot=22, eyes='angry', kickF=(880, 1000, 20), footB=(-24, -44, -24), armF=S(0, 0, -50), armB=S(0, 0, 50), hot='K')]
+ANIMS['meteor'] = [dict(STANCE, sy=0.9, eyes='angry', armF=F(640, 980, 46, 34), armB=F(470, 990, 44, 32), hot='F'),
+                   dict(STANCE, dy=-6, eyes='angry', armF=F(700, 560, 52, 36), front_arm_over=True, head=(0, 0, -12), hot='F'),
+                   dict(STANCE, dy=-8, eyes='angry', armF=F(690, 540, 52, 36), front_arm_over=True, head=(0, -2, -14), hot='F'),
+                   dict(STANCE, rot=6, eyes='angry', armF=F(945, 800, 52, 36), front_arm_over=True, hot='F')]
+ANIMS['abyss'] = [dict(STANCE, rot=-6, eyes='angry', armF=F(560, 960, 46, 34), armB=F(450, 960, 44, 32), hot='F'),
+                  dict(STANCE, rot=8, dx=10, eyes='angry', armF=F(960, 880, 54, 36), armB=F(905, 920, 50, 34), front_arm_over=True, back_arm_over=True, hot='FB'),
+                  dict(STANCE, rot=9, dx=12, eyes='angry', armF=F(965, 885, 54, 36), armB=F(910, 925, 50, 34), front_arm_over=True, back_arm_over=True, hot='FB'),
+                  dict(STANCE, rot=12, dx=18, eyes='angry', armF=F(985, 860, 56, 36), front_arm_over=True, hot='F')]
+for _n in ('jab', 'cross', 'hook', 'uppercut', 'airpunch', 'crouchpunch'):       # the punching fist burns
+    for _p in ANIMS[_n]:
+        _h = ''
+        if _p.get('armF', ('stub',))[0] == 'fist' and _p['armF'][1] > 780: _h += 'F'
+        if _p.get('armB', ('stub',))[0] == 'fist' and _p['armB'][1] > 760: _h += 'B'
+        if _h: _p['hot'] = _h
+
+ORDER = ['stand', 'walk', 'run', 'jump', 'fall', 'crouch', 'defend', 'charge', 'hurt', 'hurtup', 'hurtdown', 'fallen',
+         'jab', 'cross', 'hook', 'flurry', 'uppercut', 'kick1', 'kick2', 'kick3', 'kick4', 'airpunch', 'airkick',
+         'crouchpunch', 'crouchkick', 'meteor', 'abyss', 'grab', 'win']
+
+
+def meta(pose):
+    """hot points of a frame (1x px from the feet, facing right) for the game's dark flames."""
+    pts = rig.points(pose, OX, OY)
+    m = dict(fx=0, fy=0, bx=0, by=0, kx=0, ky=0, hot=pose.get('hot', ''))
+    if 'armF' in pts: m['fx'], m['fy'] = [int(round(v)) for v in pts['armF']]
+    if 'armB' in pts: m['bx'], m['by'] = [int(round(v)) for v in pts['armB']]
+    k = pts.get('kickF') or pts.get('kickB')
+    if k: m['kx'], m['ky'] = [int(round(v)) for v in k]
+    return m
+
+
+def build(out):
+    """every body strip (96x72 frames, feet at 48,71), the select preview and jeff_frames.json."""
+    import json
+    os.makedirs(out, exist_ok=True)
+    info = {}
+    for name in ORDER:
+        strip(render_anim(name)).save(os.path.join(out, f'jeff_{name}.png'))
+        info[name] = dict(n=len(ANIMS[name]), ox=OX, oy=OY, meta=[meta(p) for p in ANIMS[name]])
+    strip(render_anim('stand')).save(os.path.join(out, 'jeff_preview.png'))
+    json.dump({'order': ORDER, 'anims': info, 'preview': dict(n=len(ANIMS['stand']), ox=OX, oy=OY)},
+              open(os.path.join(out, 'jeff_frames.json'), 'w'))
+    return info
+
+
 def render_anim(name):
     frames = []
     for pose in ANIMS[name]:
-        pose = dict(pose); fx = pose.pop('fx', None)
+        pose = dict(pose); fx = pose.pop('fx', None); pose.pop('hot', None)
         frames.append(rig.render(pose, W, H, OX, OY, fx=fx))
     return frames
 

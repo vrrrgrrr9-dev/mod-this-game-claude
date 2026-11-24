@@ -164,7 +164,7 @@ class Canvas:
 DEFAULT = dict(dx=0, dy=0, rot=0, sy=1.0,
                head=(0, 0, 0), tail=(0, 0, 0), footB=(0, 0, 0), footF=(0, 0, 0),
                armB=('stub', 0, 0, 0), armF=('stub', 0, 0, 0),
-               eyes='open', front_arm_over=False, back_arm_over=False, blush=False)
+               eyes='open', front_arm_over=False, back_arm_over=False, blush=False, kickF=None, kickB=None)
 
 def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
     """pose keys (drawing units, 16 units = 1px at default scale):
@@ -200,13 +200,25 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
 
     shade_back = SHADE
     c.put(c.mask_from_crop('tail', part_m('tail', p['tail'])))
-    c.put(c.mask_from_crop('footB', part_m('footB', p['footB'], ride=False)), shade_back)
+    def foot(name, spec, kick, color):
+        if kick:                                     # a kick: a leg from the hip out to the foot
+            fx_, fy_, fa = kick
+            hip = apply(carried('hip'), PIVOT['hip'])
+            hip = (hip[0] + (40 if name == 'footF' else -30), hip[1] - 20)
+            c.put(c.mask_capsule(hip, (fx_, fy_), 40, 32), color)
+            x0, y0, im = _CROPS[name]
+            cx, cy = x0 + im.width / 2, y0 + im.height / 2
+            c.put(c.mask_from_crop(name, trans(fx_ - cx, fy_ - cy) @ rot(fa, (cx, cy))), color)
+        else:
+            c.put(c.mask_from_crop(name, part_m(name, spec, ride=False)), color)
+
+    foot('footB', p['footB'], p['kickB'], shade_back)
     if not p['back_arm_over']:
         c.put(arm('armB', p['armB']), shade_back)
     if not p['front_arm_over']:
         c.put(arm('armF', p['armF']))
     c.put(c.mask_from_crop('body', body))
-    c.put(c.mask_from_crop('footF', part_m('footF', p['footF'], ride=False)))
+    foot('footF', p['footF'], p['kickF'], FILL)
     hx, hy, ha = p['head']
     headM = carried('neck') @ trans(hx, hy) @ rot(ha, PIVOT['neck'])
     c.put(c.mask_from_crop('head', headM))
@@ -240,6 +252,21 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
     if fx:
         fx(c)
     return c.image()
+
+def points(pose, ox, oy, scale=0.0625):
+    """pixel positions (relative to the feet) of the punching fists and the kicking foot."""
+    p = dict(DEFAULT); p.update(pose)
+    r = PIVOT['root']
+    M = trans(ox, oy) @ scl(scale, scale) @ trans(-r[0], -r[1]) @ trans(p['dx'], p['dy']) @ rot(p['rot'], r)
+    out = {}
+    for k in ('armF', 'armB'):
+        if p[k][0] == 'fist':
+            x, y = apply(M, (p[k][1], p[k][2])); out[k] = (x - ox, y - oy)
+    for k in ('kickF', 'kickB'):
+        if p[k]:
+            x, y = apply(M, (p[k][0], p[k][1])); out[k] = (x - ox, y - oy)
+    return out
+
 
 if __name__ == '__main__':
     im = render({})

@@ -51,11 +51,10 @@ def main(out):
     face.card().save(P('face'))
     sprites.append(('face', 1, 0, 0, 0))
 
-    # the scythe (2x): flat held angles split in two strips, loose, twirl back/front, thrown disc
+    # the scythe (2x): flat held angles split in two strips, twirl back/front, thrown disc
     C = weapon.WS // 2
     sets = [('wpn0', [weapon.render(i * 11.25, held=True) for i in range(16)]),
             ('wpn1', [weapon.render(i * 11.25, held=True) for i in range(16, 32)]),
-            ('wpnfree', [weapon.render(i * 22.5, held=False) for i in range(16)]),
             ('orbb', [weapon.render(i * 18.0, held=True, tilt=64, layer='back') for i in range(20)]),
             ('orbf', [weapon.render(i * 18.0, held=True, tilt=64, layer='front') for i in range(20)]),
             ('disc', [weapon.render(i * 18.0, held=False, tilt=74) for i in range(20)])]

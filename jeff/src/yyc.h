@@ -54,6 +54,7 @@ void F_SpriteExists(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_AudioCreateStream(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_AudioPlaySound(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_AudioStopSound(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
+void F_AudioIsPlaying(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_AudioSoundPitch(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_GPUSetBlendMode(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);
 void F_InstanceCreateDepth(RValue *r, CInstance *s, CInstance *o, int n, RValue *a);

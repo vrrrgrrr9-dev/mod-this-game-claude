@@ -1,12 +1,19 @@
 /*
- * Jeff the anteater - a new fighter for the WOTU "Coco" mod.
+ * Jeff the anteater - a fighter for the WOTU "Coco" mod, in dark blue flame.
  *
- *  combo 1 (attack A) and combo 2 (attack B): jab -> cross -> hook -> uppercut
+ *  attack A: dark flame punches - jab -> cross -> hook -> flame flurry -> uppercut
+ *  attack B: blue flame kicks   - front kick -> roundhouse -> spinning back kick -> axe kick
+ *  down + attack A / B: crouching jab / flame sweep (trips)    air attack A / B: air punch / diving kick
  *  defend: crouches and blocks with both hands (spr_defend)
- *  skill 1 (skill button):            Formic Arcana - a runic ant swarm that sweeps forward and bursts
- *  skill 2 (down + skill):            Starlight Lance - a star beam fired from his snout, ends in a nova
+ *  skill 1 (skill button):  Meteor Shower - black holes tear open in the sky and rain meteors wrapped
+ *                           in dark blue flame onto the ground in front of him
+ *  skill 2 (down + skill):  Abyss Palm - his palm opens a black hole that drags the opponent in, then
+ *                           his punch detonates it
  *  special (shield + skill together): Bone Breaker - grabs the nearest enemy, X-ray cutscene that
  *                                     breaks their bones, then their HP is set to 0
+ *
+ * The flame: blue fire with darkness flowing inside it (pixel art, art/flame.py), drawn on whichever
+ * fist / foot is "hot" in the current frame (per-frame table from the art build).
  *
  * Built on the game's own character framework (same as Erbito Black Rose): scr_plr_step drives
  * movement/inputs, combos run through alarm[3]/alarm[2] like every original character, and hits
@@ -19,6 +26,7 @@
 #define OBJ_JEFF       685
 #define OBJ_MASK_HIT   224
 #define OBJ_PARENT_CHARACTER 420
+#define OBJ_PARENT_SOLID 425
 #define OBJ_CAMERA     9
 
 #define SPR_MASK_STAND 1684
@@ -30,17 +38,13 @@
 #define SPR_HIT_1 312
 #define SPR_HIT_3 314
 #define SPR_HIT_5 317
-#define SPR_AURA_WHITE 235
 
 #define SND_JUMP 190
 #define SND_WOOSH1 465
 #define SND_WOOSH2 466
 #define SND_WOOSH3 467
-#define SND_MAGIC1 201
 #define SND_MAGIC3 203
 #define SND_MAGICSTUN_CAST 206
-#define SND_BALL_CHARGE 266
-#define SND_CYBERBEAM 80
 #define SND_EXPLOSION_MEGA 100
 #define SND_DARKEXPLOSION 82
 #define SND_SUSPENSE 13
@@ -52,34 +56,39 @@
 
 #define C_WHITE  0xFFFFFF
 #define RGB(r, g, b) ((int)((r) | ((g) << 8) | ((b) << 16)))   /* GameMaker colours are BGR */
-#define C_VIOLET RGB(200, 110, 255)
-#define C_AMBER  RGB(255, 196, 70)
-#define C_CYAN   RGB(120, 240, 255)
+#define C_FLAME  RGB(80, 170, 255)
 #define C_RED    RGB(255, 60, 60)
 
-enum { MOVE_NONE, MOVE_SKILL1, MOVE_SKILL2, MOVE_SPECIAL };
+enum { MOVE_NONE, MOVE_SKILL1, MOVE_SKILL2, MOVE_SPECIAL, MOVE_FLURRY };
 
 #define SP_DASH   14      /* frames of the dash toward the victim */
 #define SP_CUT    156     /* cutscene length (frames) */
 #define SP_AFTER  36      /* after the final blow */
 
+#define N_MET 14
+#define N_JFX 12
+typedef struct { int on, t; float x, y, vx, vy; } Meteor;
+typedef struct { int on, t, a, tpf, n, add; float x, y, xs, ys, rot; } JFx;
+
 typedef struct {
     CInstance *inst;
     int move, t;
     float dir;
-    /* skill 1 */
-    int sw_on, sw_t; float sw_x, sw_y, sw_dir;
-    int burst_on, burst_t; float burst_x, burst_y;
-    /* skill 2 */
-    int beam_on, beam_t; float beam_x, beam_y, beam_dir, beam_len;
-    int nova_on, nova_t; float nova_x, nova_y;
+    /* skill 1: meteor shower */
+    int portals_on, portals_t; float portal_x[3], portal_y[3], ground_y;
+    Meteor met[N_MET];
+    /* skill 2: black hole */
+    int bh_on, bh_t; float bh_x, bh_y;
+    /* one-shot effects (bursts, kick arcs, craters) and the burning limbs */
+    JFx fx[N_JFX];
+    int last_hot;
     /* special */
     int tgt_id; float tgt_x, tgt_y, start_x; int cut_t, hit_done, depth_saved; double old_depth;
     int impact_on, impact_t; float impact_x, impact_y;
     float shake;
     int aura_t;
     int fail_t;
-    int home_t; float home_v, home_dir;   /* homing lunge at the start of a punch */
+    int home_t; float home_v, home_dir;   /* homing lunge at the start of a punch / kick */
 } Jeff;
 
 static Jeff g_jeff[8];
@@ -134,11 +143,32 @@ static unsigned g_rng = 0x9e3779b9u;
 static unsigned rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static float frand(float a, float b) { return a + (b - a) * (float)(rnd() & 0xffff) / 65535.0f; }
 
-static void play(CInstance *s, int snd, double pitch) {
-    if (snd < 0) return;
+static float fabsf_(float v) { return v < 0 ? -v : v; }
+static bool finite_(float v) { return v == v && v < 1e7f && v > -1e7f; }
+static float atan2f_(float y, float x) {            /* small freestanding atan2 (radians) */
+    float ax = fabsf_(x), ay = fabsf_(y);
+    if (ax < 1e-6f && ay < 1e-6f) return 0;
+    float a = ax > ay ? ay / ax : ax / ay, q = a * a;
+    float r = ((-0.0464964749f * q + 0.15931422f) * q - 0.327622764f) * q * a + a;
+    if (ay > ax) r = 1.5707963f - r;
+    if (x < 0) r = 3.1415927f - r;
+    return y < 0 ? -r : r;
+}
+
+static bool voice_playing(CInstance *s, double v) {
+    if (v <= 0) return false;
+    RValue r = rv_undef(); RValue a = rv_real(v);
+    F_AudioIsPlaying(&r, s, s, 1, &a);
+    bool b = rv_num(&r) > 0.5;
+    rv_free(&r);
+    return b;
+}
+static double play_v(CInstance *s, int snd, double pitch) {
+    if (snd < 0) return 0;
     RValue r = rv_undef();
     RValue a[3] = { rv_real(snd), rv_real(10), rv_real(0) };
     F_AudioPlaySound(&r, s, s, 3, a);
+    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? 0 : rv_num(&r);
     if (pitch != 1.0 && (r.kind & KIND_MASK) != VALUE_UNDEFINED) {
         RValue r2 = rv_undef();
         RValue b[2] = { r, rv_real(pitch) };
@@ -146,8 +176,20 @@ static void play(CInstance *s, int snd, double pitch) {
         rv_free(&r2);
     }
     rv_free(&r);
+    return v;
 }
-static void play_custom(CInstance *s, int which, double pitch) { play(s, g_jeff_snd[which], pitch); }
+static void play(CInstance *s, int snd, double pitch) { play_v(s, snd, pitch); }
+/* our sounds are OGG files opened with audio_create_stream (each playing copy decodes on its own
+   thread): never two copies of the same one at once, at most 3 of ours alive */
+static double g_jeff_voice[S_COUNT];
+static void play_custom(CInstance *s, int which, double pitch) {
+    if (which < 0 || which >= S_COUNT || g_jeff_snd[which] < 0) return;
+    if (voice_playing(s, g_jeff_voice[which])) return;
+    int alive = 0;
+    for (int k = 0; k < S_COUNT; k++) if (voice_playing(s, g_jeff_voice[k])) alive++;
+    if (alive >= 3) return;
+    g_jeff_voice[which] = play_v(s, g_jeff_snd[which], pitch);
+}
 
 static void blend(CInstance *s, int mode) {
     RValue r = rv_undef(); RValue a = rv_real(mode);
@@ -156,14 +198,17 @@ static void blend(CInstance *s, int mode) {
 }
 static void spr(CInstance *s, int a, float img, float x, float y, float xs, float ys, float rot, int col, float alpha) {
     int id = g_jeff_spr[a];
-    if (id < 0) return;
-    YYGML_draw_sprite_ext(s, id, img, x, y, xs, ys, rot, col, alpha);
+    if (id < 0 || !finite_(x) || !finite_(y)) return;
+    float k = k_sprites[a].half ? 0.5f : 1.0f;
+    YYGML_draw_sprite_ext(s, id, img, x, y, xs * k, ys * k, rot, col, alpha);
 }
 static void camera_shake(double amount) {
     RValue cam = rv_real(OBJ_CAMERA);
     RValue v = rv_real(amount);
     YYGML_Variable_SetValue(&cam, g_VAR_camera_shake.id, ARRAY_INDEX_NONE, &v);
 }
+static float sx_(CInstance *s) { return (float)sget(s, &g_VAR_x); }
+static float sy_(CInstance *s) { return (float)sget(s, &g_VAR_y); }
 
 /* ------------------------------------------------------------------------------------------ */
 /* assets                                                                                      */
@@ -206,20 +251,16 @@ void jeff_load_assets(CInstance *s) {
 /* ------------------------------------------------------------------------------------------ */
 /* per-instance state                                                                          */
 /* ------------------------------------------------------------------------------------------ */
+static void jeff_reset(Jeff *j, CInstance *s) {
+    char *p = (char *)j; for (unsigned k = 0; k < sizeof(Jeff); k++) p[k] = 0;
+    j->inst = s; j->dir = 1; j->tgt_id = -1; j->last_hot = -1;
+}
 static Jeff *slot(CInstance *s, bool create) {
     for (int i = 0; i < 8; i++) if (g_jeff[i].inst == s) return &g_jeff[i];
     if (!create) return 0;
-    for (int i = 0; i < 8; i++) if (!g_jeff[i].inst) {
-        Jeff *j = &g_jeff[i];
-        char *p = (char *)j; for (unsigned k = 0; k < sizeof(Jeff); k++) p[k] = 0;
-        j->inst = s; j->dir = 1; j->tgt_id = -1;
-        return j;
-    }
-    /* table full (should never happen): recycle slot 7 */
-    Jeff *j = &g_jeff[7];
-    char *p = (char *)j; for (unsigned k = 0; k < sizeof(Jeff); k++) p[k] = 0;
-    j->inst = s; j->dir = 1; j->tgt_id = -1;
-    return j;
+    for (int i = 0; i < 8; i++) if (!g_jeff[i].inst) { jeff_reset(&g_jeff[i], s); return &g_jeff[i]; }
+    jeff_reset(&g_jeff[7], s);                      /* table full (should never happen): recycle */
+    return &g_jeff[7];
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -275,6 +316,15 @@ static void spawn_hit(CInstance *s, double x, double y, const Hit *h) {
     t = rv_bool(false); YYGML_Variable_SetValue(&id, g_VAR_hit_snd_miss.id, ARRAY_INDEX_NONE, &t);
     rv_free(&id);
 }
+static float sinf_(float x) {                       /* small, bounded sine (radians) */
+    if (!finite_(x)) return 0;
+    x -= 6.2831853f * (float)(int)(x / 6.2831853f);
+    if (x > 3.1415927f) x -= 6.2831853f;
+    if (x < -3.1415927f) x += 6.2831853f;
+    float x2 = x * x;
+    return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72))));
+}
+static float cosf_(float x) { return sinf_(x + 1.5707963f); }
 
 /* ------------------------------------------------------------------------------------------ */
 /* events                                                                                      */
@@ -282,7 +332,7 @@ static void spawn_hit(CInstance *s, double x, double y, const Hit *h) {
 void gml_Object_o_jeff_Create_0(CInstance *s, CInstance *o) {
     jeff_load_assets(s);
     gml_Object_o_parent_character_Create_0(s, o);        /* event_inherited() */
-    slot(s, true);
+    jeff_reset(slot(s, true), s);                         /* fresh state even if a stale slot matched */
     /* same variable set as o_plr_erbitobkr (Erbito Black Rose) */
     iset(s, &g_VAR_parent, 0);
     iset_b(s, &g_VAR_local_runleft, false);
@@ -344,16 +394,28 @@ void gml_Object_o_jeff_Destroy_0(CInstance *s, CInstance *o) {
 }
 
 /* ------------------------------------------------------------------------------------------ */
-/* combos: jab, cross, hook, uppercut  (combo_next 1-4 = attack A, 50-53 = attack B)           */
+/* moves                                                                                       */
 /* ------------------------------------------------------------------------------------------ */
+static CInstance *find_target(CInstance *s, int *out_id);
+static float facing(CInstance *s) { return sget(s, &g_VAR_image_xscale) < 0 ? -1.0f : 1.0f; }
 static void start_skill1(CInstance *s, Jeff *j);
 static void start_skill2(CInstance *s, Jeff *j);
 
-static CInstance *find_target(CInstance *s, int *out_id);
-static float facing(CInstance *s);
+static void show(CInstance *s, int a, float frame) {
+    bset(s, &g_VAR_sprite_index, g_jeff_spr[a]);
+    bset(s, &g_VAR_image_index, frame);
+    bset(s, &g_VAR_image_speed, 0);
+}
+static void fx_at(Jeff *j, int a, float x, float y, float xs, float ys, float rot, int tpf, int add) {
+    int best = 0;
+    for (int i = 0; i < N_JFX; i++) { if (!j->fx[i].on) { best = i; break; } if (j->fx[i].t > j->fx[best].t) best = i; }
+    JFx *f = &j->fx[best];
+    f->on = 1; f->t = 0; f->a = a; f->tpf = tpf; f->n = k_sprites[a].frames; f->add = add;
+    f->x = x; f->y = y; f->xs = xs; f->ys = ys; f->rot = rot;
+}
 
-/* a short homing lunge so the punch connects (the CPU presses attack from ~50 px away): turns to an
-   opponent right behind him and closes the gap over 5 frames, on top of the punch's own push */
+/* a short homing lunge so the blow connects (the CPU attacks from ~50 px away): turns to an
+   opponent right behind him and closes the gap over 5 frames, on top of the move's own push */
 static void jeff_home(CInstance *s, Jeff *j) {
     int tid = -1;
     j->home_t = 0;
@@ -377,45 +439,92 @@ static void jeff_home(CInstance *s, Jeff *j) {
 
 static void jeff_combo(CInstance *s, CInstance *o, int step) {
     Jeff *j = slot(s, true);
-    if ((step >= 1 && step <= 4) || (step >= 50 && step <= 53) || step == 10 || step == 60) jeff_home(s, j);
+    if (j->move == MOVE_FLURRY) j->move = MOVE_NONE;       /* the next blow takes over */
+    if ((step >= 1 && step <= 5) || (step >= 50 && step <= 53) || step == 10 || step == 60) jeff_home(s, j);
     bset(s, &g_VAR_image_speed, 0.3);
     iset_b(s, &g_VAR_combo_nextcombo, false);
     double dmg = parent_ok(s) ? pget(s, &g_VAR_plr_dmg) : 40;
-    bool b = (step >= 50 && step < 100);              /* attack B: same punches, arcane violet hits */
-    int col = b ? C_VIOLET : C_WHITE;
-    double k = b ? 1.1 : 1.0;
+    j->dir = facing(s);
+    float x = sx_(s), y = sy_(s), d = j->dir;
     switch (step) {
-    case 1: case 50:                                   /* JAB */
-        iset(s, &g_VAR_combo_next, step + 1);
-        combo_normal(s, o, g_jeff_spr[A_JAB], SPR_MASK16, 20, -27, 3, 3, -3, dmg * 0.85 * k, 5, false, 12, 1, SPR_HIT_1, col);
+    /* --- attack A: dark flame punches ------------------------------------------------- */
+    case 1:                                            /* JAB */
+        iset(s, &g_VAR_combo_next, 2);
+        combo_normal(s, o, g_jeff_spr[A_JAB], SPR_MASK16, 20, -27, 3, 3, -3, dmg * 0.85, 5, false, 12, 1, SPR_HIT_1, C_FLAME);
         play(s, SND_WOOSH1, 1.15);
         break;
-    case 2: case 51:                                   /* CROSS */
-        iset(s, &g_VAR_combo_next, step + 1);
-        combo_normal(s, o, g_jeff_spr[A_CROSS], SPR_MASK16, 23, -27, 4, 4, -3, dmg * 1.0 * k, 5, false, 13, 1, SPR_HIT_1, col);
+    case 2:                                            /* CROSS */
+        iset(s, &g_VAR_combo_next, 3);
+        combo_normal(s, o, g_jeff_spr[A_CROSS], SPR_MASK16, 23, -27, 4, 4, -3, dmg * 1.0, 5, false, 13, 1, SPR_HIT_1, C_FLAME);
         play(s, SND_WOOSH2, 1.05);
         break;
-    case 3: case 52:                                   /* HOOK */
-        iset(s, &g_VAR_combo_next, step + 1);
-        combo_normal(s, o, g_jeff_spr[A_HOOK], SPR_MASK24, 22, -31, 3, 6, -4, dmg * 1.15 * k, 6, false, 15, 1, SPR_HIT_3, col);
+    case 3:                                            /* HOOK */
+        iset(s, &g_VAR_combo_next, 4);
+        combo_normal(s, o, g_jeff_spr[A_HOOK], SPR_MASK24, 22, -31, 3, 6, -4, dmg * 1.15, 6, false, 15, 1, SPR_HIT_3, C_FLAME);
         play(s, SND_WOOSH3, 0.95);
         break;
-    case 4: case 53:                                   /* UPPERCUT - launches */
+    case 4:                                            /* FLAME FLURRY: a burst of burning punches */
+        iset(s, &g_VAR_combo_next, 5);
+        j->move = MOVE_FLURRY; j->t = 0;
+        show(s, A_FLURRY, 0);
+        bset_i(s, &g_VAR_alarm, 2, 26);
+        play_custom(s, S_FLAME, 1.1);
+        break;
+    case 5:                                            /* UPPERCUT - launches */
         iset(s, &g_VAR_combo_next, -1);
-        combo_normal(s, o, g_jeff_spr[A_UPPERCUT], SPR_MASK24, 16, -38, 2, 7, -12, dmg * 1.6 * k, 7, true, 24, 2, SPR_HIT_3, col);
+        combo_normal(s, o, g_jeff_spr[A_UPPERCUT], SPR_MASK24, 16, -38, 2, 7, -12, dmg * 1.6, 7, true, 24, 2, SPR_HIT_3, C_FLAME);
         play(s, SND_STRONG2, 1.0);
         if (parent_ok(s) && pget(s, &g_VAR_is_onair) < 0.5) bset(s, &g_VAR_vspeed, -3.2);
+        fx_at(j, A_JF_BURST, x + d * 18, y - 46, 0.7f, 0.7f, 0, 1, 0);
         camera_shake(1);
         break;
-    case 10: case 60:                                  /* crouching jab */
+    /* --- attack B: blue flame kicks ---------------------------------------------------- */
+    case 50:                                           /* FRONT KICK */
+        iset(s, &g_VAR_combo_next, 51);
+        combo_normal(s, o, g_jeff_spr[A_KICK1], SPR_MASK24, 26, -24, 4, 5, -3, dmg * 0.95, 6, false, 14, 1, SPR_HIT_1, C_FLAME);
+        fx_at(j, A_JF_ARC, x + d * 6, y - 24, d, 0.8f, d * -50, 2, 0);
+        play(s, SND_WOOSH2, 1.1);
+        break;
+    case 51:                                           /* ROUNDHOUSE */
+        iset(s, &g_VAR_combo_next, 52);
+        combo_normal(s, o, g_jeff_spr[A_KICK2], SPR_MASK24, 26, -40, 3, 6, -4, dmg * 1.05, 6, false, 15, 1, SPR_HIT_1, C_FLAME);
+        fx_at(j, A_JF_ARC, x + d * 4, y - 36, d, 1, d * -10, 2, 0);
+        play(s, SND_WOOSH3, 1.05);
+        break;
+    case 52:                                           /* SPINNING BACK KICK */
+        iset(s, &g_VAR_combo_next, 53);
+        combo_normal(s, o, g_jeff_spr[A_KICK3], SPR_MASK32, 28, -32, 4, 7, -5, dmg * 1.15, 7, false, 18, 1, SPR_HIT_3, C_FLAME);
+        fx_at(j, A_JF_ARC, x, y - 32, -d, 1, d * 20, 2, 0);
+        play(s, SND_WOOSH3, 0.9);
+        break;
+    case 53:                                           /* AXE KICK - heel comes down in flame (knockdown) */
         iset(s, &g_VAR_combo_next, -1);
-        combo_normal(s, o, g_jeff_spr[A_CROUCHPUNCH], SPR_MASK16, 21, -12, 2, 4, -2, dmg * 0.9 * k, 5, false, 14, 1, SPR_HIT_1, col);
+        combo_normal(s, o, g_jeff_spr[A_KICK4], SPR_MASK32, 26, -18, 2, 6, 5, dmg * 1.6, 8, true, 26, 2, SPR_HIT_3, C_FLAME);
+        fx_at(j, A_JF_ARC, x + d * 14, y - 34, d, 1, d * -80, 2, 0);
+        play(s, SND_STRONG2, 0.85);
+        break;
+    /* --- crouch / air ---------------------------------------------------------------- */
+    case 10:                                           /* crouching jab */
+        iset(s, &g_VAR_combo_next, -1);
+        combo_normal(s, o, g_jeff_spr[A_CROUCHPUNCH], SPR_MASK16, 21, -12, 2, 4, -2, dmg * 0.9, 5, false, 14, 1, SPR_HIT_1, C_FLAME);
         play(s, SND_WOOSH1, 1.2);
         break;
-    case 11: case 61:                                  /* air punch */
+    case 60:                                           /* flame sweep (trips) */
         iset(s, &g_VAR_combo_next, -1);
-        combo_normal(s, o, g_jeff_spr[A_AIRPUNCH], SPR_MASK16, 18, -20, 0, 4, 3, dmg * 1.0 * k, 5, false, 16, 1, SPR_HIT_1, col);
+        combo_normal(s, o, g_jeff_spr[A_CROUCHKICK], SPR_MASK24, 28, -8, 3, 4, -3, dmg * 0.95, 6, true, 16, 1, SPR_HIT_1, C_FLAME);
+        fx_at(j, A_JF_ARC, x + d * 10, y - 6, d, 0.45f, d * -70, 2, 0);
+        play(s, SND_WOOSH2, 1.2);
+        break;
+    case 11:                                           /* air punch */
+        iset(s, &g_VAR_combo_next, -1);
+        combo_normal(s, o, g_jeff_spr[A_AIRPUNCH], SPR_MASK16, 18, -20, 0, 4, 3, dmg * 1.0, 5, false, 16, 1, SPR_HIT_1, C_FLAME);
         play(s, SND_WOOSH2, 1.1);
+        break;
+    case 61:                                           /* diving flame kick */
+        iset(s, &g_VAR_combo_next, -1);
+        combo_normal(s, o, g_jeff_spr[A_AIRKICK], SPR_MASK24, 22, -8, 0, 5, 5, dmg * 1.1, 6, false, 16, 1, SPR_HIT_1, C_FLAME);
+        bset(s, &g_VAR_vspeed, 5); bset(s, &g_VAR_hspeed, d * 4);
+        play(s, SND_WOOSH3, 1.2);
         break;
     case 100:
         start_skill1(s, j);
@@ -444,6 +553,8 @@ void gml_Object_o_jeff_Alarm_2(CInstance *s, CInstance *o) {
         jeff_combo(s, o, (int)next);
         return;
     }
+    Jeff *j = slot(s, true);
+    if (j->move == MOVE_FLURRY) j->move = MOVE_NONE;
     if (next == -1) {
         if (parent_ok(s)) {
             pset_b(s, &g_VAR_is_attacking, false);
@@ -455,127 +566,193 @@ void gml_Object_o_jeff_Alarm_2(CInstance *s, CInstance *o) {
     }
 }
 
-/* ------------------------------------------------------------------------------------------ */
-/* skill 1 - Formic Arcana (runic ant swarm)                                                   */
-/* ------------------------------------------------------------------------------------------ */
-static float facing(CInstance *s) { return sget(s, &g_VAR_image_xscale) < 0 ? -1.0f : 1.0f; }
-
-static void start_skill1(CInstance *s, Jeff *j) {
-    j->move = MOVE_SKILL1; j->t = 0; j->dir = facing(s);
-    iset(s, &g_VAR_combo_next, -1);
-    bset_i(s, &g_VAR_alarm, 2, 42);                  /* holds is_attacking for the whole cast */
-    bset(s, &g_VAR_sprite_index, g_jeff_spr[A_CAST1]);
-    bset(s, &g_VAR_image_index, 0);
-    bset(s, &g_VAR_image_speed, 0);
-    bset(s, &g_VAR_hspeed, 0);
-    play(s, SND_MAGICSTUN_CAST, 1.0);
+static void flurry_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    show(s, A_FLURRY, (float)((t / 3) % 4));
+    bset(s, &g_VAR_hspeed, t < 20 ? j->dir * 1.1 : 0);
+    if (t % 4 == 2 && t < 22 && parent_ok(s)) {
+        float y = sy_(s) - 28 + ((t / 4) % 2 ? -5 : 4);
+        Hit h = { pget(s, &g_VAR_plr_dmg) * 0.3, j->dir * 1.6, -1, 10, 4, 1.3, 1.2, SPR_MASK24, 1, 0, 1, 0, SPR_HIT_1, C_FLAME, 1 };
+        spawn_hit(s, sx_(s) + j->dir * 28, y, &h);
+        play(s, (t / 4) % 2 ? SND_WOOSH1 : SND_WOOSH2, 1.3);
+    }
+    if (t >= 26) j->move = MOVE_NONE;
 }
 
-static void skill1_step(CInstance *s, Jeff *j) {
-    j->t++;
-    int t = j->t;
-    bset(s, &g_VAR_sprite_index, g_jeff_spr[A_CAST1]);
-    bset(s, &g_VAR_image_index, t < 8 ? 0 : t < 16 ? 1 : t < 24 ? 2 : 3);
+/* ------------------------------------------------------------------------------------------ */
+/* skill 1 - Meteor Shower: black holes open in the sky and rain flaming meteors              */
+/* ------------------------------------------------------------------------------------------ */
+static void start_skill1(CInstance *s, Jeff *j) {
+    j->move = MOVE_SKILL1; j->t = 0; j->dir = facing(s); j->ground_y = sy_(s);
+    iset(s, &g_VAR_combo_next, -1);
+    bset_i(s, &g_VAR_alarm, 2, 72);
+    show(s, A_METEOR, 0);
     bset(s, &g_VAR_hspeed, 0);
-    if (t == 16) {
-        j->sw_on = 1; j->sw_t = 0; j->sw_dir = j->dir;
-        j->sw_x = (float)sget(s, &g_VAR_x) + j->dir * 22;
-        j->sw_y = (float)sget(s, &g_VAR_y) - 6;
-        play(s, SND_MAGIC3, 0.9);
-        play_custom(s, S_SWARM, 1.0);
+    play(s, SND_MAGICSTUN_CAST, 0.8);
+}
+static void skill1_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    show(s, A_METEOR, (float)(t < 10 ? 0 : t < 16 ? 1 : t < 56 ? 2 : 3));
+    bset(s, &g_VAR_hspeed, 0);
+    if (t == 14) {
+        float x = sx_(s), y = sy_(s);
+        for (int k = 0; k < 3; k++) { j->portal_x[k] = x + j->dir * (70 + 85 * k); j->portal_y[k] = y - 150 - 14 * (k % 2); }
+        j->portals_on = 1; j->portals_t = 0;
+        play_custom(s, S_HOLE, 1.25);
         camera_shake(1);
     }
-    if (t >= 42) j->move = MOVE_NONE;
-}
-
-static void swarm_step(CInstance *s, Jeff *j) {
-    if (j->sw_on) {
-        j->sw_t++;
-        float spd = 2.6f + (j->sw_t < 24 ? j->sw_t * 0.12f : 2.9f);
-        j->sw_x += j->sw_dir * spd;
-        if (j->sw_t % 5 == 0 && parent_ok(s)) {
-            double dmg = pget(s, &g_VAR_plr_dmg);
-            Hit h = { dmg * 0.34, j->sw_dir * 2.0, -1.5, 14, 4, 1.5, 1.2, SPR_MASK32, 1, 0, 1, 0, SPR_HIT_5, C_AMBER, 1 };
-            spawn_hit(s, j->sw_x, j->sw_y - 8, &h);
+    if (t >= 18 && t <= 62 && t % 4 == 2) {
+        int k = (t / 4) % 3;
+        for (int i = 0; i < N_MET; i++) if (!j->met[i].on) {
+            Meteor *m = &j->met[i];
+            m->on = 1; m->t = 0;
+            m->x = j->portal_x[k] + frand(-18, 18); m->y = j->portal_y[k] + 6;
+            m->vx = j->dir * frand(1.8f, 3.6f); m->vy = frand(4.5f, 6.0f);
+            break;
         }
-        if (j->sw_t >= 78) {
-            j->sw_on = 0;
-            j->burst_on = 1; j->burst_t = 0; j->burst_x = j->sw_x; j->burst_y = j->sw_y;
-            if (parent_ok(s)) {
-                double dmg = pget(s, &g_VAR_plr_dmg);
-                Hit h = { dmg * 1.5, j->sw_dir * 9.0, -8.0, 30, 6, 1.6, 1.6, SPR_MASK64, 1, 1, 1, 1, SPR_HIT_3, C_AMBER, 2 };
-                spawn_hit(s, j->burst_x, j->burst_y - 20, &h);
-            }
-            play(s, SND_DARKEXPLOSION, 1.1);
-            camera_shake(2);
-        }
+        if (t % 12 == 2) play(s, SND_WOOSH3, 0.7);
     }
-    if (j->burst_on && ++j->burst_t >= 32) j->burst_on = 0;
+    if (t >= 72) { j->move = MOVE_NONE; bset(s, &g_VAR_image_speed, 0.3); }
+}
+static void meteors_step(CInstance *s, Jeff *j) {
+    if (j->portals_on && ++j->portals_t > 72) j->portals_on = 0;
+    for (int i = 0; i < N_MET; i++) {
+        Meteor *m = &j->met[i];
+        if (!m->on) continue;
+        m->t++; m->vy += 0.2f; m->x += m->vx; m->y += m->vy;
+        if (m->y < j->ground_y - 2 && m->t <= 90) continue;
+        m->on = 0;                                    /* impact */
+        float gx = m->x, gy = j->ground_y;
+        if (parent_ok(s)) {
+            Hit h = { pget(s, &g_VAR_plr_dmg) * 0.42, m->vx > 0 ? 3.0 : -3.0, -4.5, 16, 5, 1.6, 1.4, SPR_MASK32, 1, 0, 1, 0, SPR_HIT_3, C_FLAME, 1 };
+            spawn_hit(s, gx, gy - 14, &h);
+        }
+        fx_at(j, A_JF_CRATER, gx, gy, 1, 1, 0, 2, 0);
+        fx_at(j, A_JF_BURST, gx, gy - 10, 0.6f, 0.6f, 0, 1, 0);
+        camera_shake(1);
+        play_custom(s, S_METEOR, frand(0.9f, 1.15f));
+    }
 }
 
 /* ------------------------------------------------------------------------------------------ */
-/* skill 2 - Starlight Lance (beam from the snout, ends in a nova)                            */
+/* skill 2 - Abyss Palm: a black hole that drags the opponent in, then his punch detonates it */
 /* ------------------------------------------------------------------------------------------ */
 static void start_skill2(CInstance *s, Jeff *j) {
     j->move = MOVE_SKILL2; j->t = 0; j->dir = facing(s);
     iset(s, &g_VAR_combo_next, -1);
-    bset_i(s, &g_VAR_alarm, 2, 82);
-    bset(s, &g_VAR_sprite_index, g_jeff_spr[A_CAST2]);
-    bset(s, &g_VAR_image_index, 0);
-    bset(s, &g_VAR_image_speed, 0);
+    bset_i(s, &g_VAR_alarm, 2, 70);
+    show(s, A_ABYSS, 0);
     bset(s, &g_VAR_hspeed, 0);
-    play(s, SND_BALL_CHARGE, 1.0);
+    play(s, SND_MAGIC3, 0.7);
 }
-
-static float snout_x(CInstance *s, Jeff *j) { return (float)sget(s, &g_VAR_x) + j->dir * 27; }
-static float snout_y(CInstance *s) { return (float)sget(s, &g_VAR_y) - 34; }
-
+static void hole_detonate(CInstance *s, Jeff *j) {
+    if (parent_ok(s)) {
+        Hit h = { pget(s, &g_VAR_plr_dmg) * 1.5, j->dir * 9.0, -8.0, 30, 7, 2.0, 2.0, SPR_MASK64, 1, 1, 1, 1, SPR_HIT_3, C_FLAME, 2 };
+        spawn_hit(s, j->bh_x, j->bh_y, &h);
+    }
+    fx_at(j, A_JF_BURST, j->bh_x, j->bh_y, 1.3f, 1.3f, 0, 2, 0);
+    j->bh_on = 0;
+    camera_shake(4);
+    play(s, SND_DARKEXPLOSION, 1.0);
+}
 static void skill2_step(CInstance *s, Jeff *j) {
-    j->t++;
-    int t = j->t;
-    bset(s, &g_VAR_sprite_index, g_jeff_spr[A_CAST2]);
-    bset(s, &g_VAR_image_index, t < 10 ? 0 : t < 26 ? 1 : t < 32 ? 2 : 3);
-    bset(s, &g_VAR_hspeed, 0);
-    if (t == 26) {
-        j->beam_on = 1; j->beam_t = 0; j->beam_dir = j->dir; j->beam_len = 0;
-        j->beam_x = snout_x(s, j); j->beam_y = snout_y(s);
-        play(s, SND_CYBERBEAM, 0.9);
-        play_custom(s, S_BEAM, 1.0);
+    int t = ++j->t;
+    show(s, A_ABYSS, (float)(t < 8 ? 0 : t < 50 ? 1 + ((t / 4) % 2) : 3));
+    bset(s, &g_VAR_hspeed, (t >= 50 && t < 54) ? j->dir * 3.5 : 0);
+    if (t == 10) {
+        j->bh_on = 1; j->bh_t = 0;
+        j->bh_x = sx_(s) + j->dir * 74; j->bh_y = sy_(s) - 34;
+        play_custom(s, S_HOLE, 1.0);
         camera_shake(2);
     }
-    if (t >= 82) j->move = MOVE_NONE;
+    if (t == 52 && j->bh_on) hole_detonate(s, j);
+    if (t >= 70) { j->move = MOVE_NONE; bset(s, &g_VAR_image_speed, 0.3); }
 }
-
-static void beam_step(CInstance *s, Jeff *j) {
-    if (j->beam_on) {
-        j->beam_t++;
-        float target = 330.0f;
-        j->beam_len = j->beam_len + (target - j->beam_len) * 0.35f;
-        if (j->beam_t % 4 == 0 && j->beam_t <= 40 && parent_ok(s)) {
-            double dmg = pget(s, &g_VAR_plr_dmg);
-            float len = j->beam_len;
-            Hit h = { dmg * 0.27, j->beam_dir * 1.5, -0.5, 10, 3, len / 64.0, 0.4, SPR_MASK64, 1, 0, 1, 0, SPR_HIT_5, C_CYAN, 1 };
-            /* s_mask_hit_* sprites are centred: put the scaled mask on the middle of the beam */
-            spawn_hit(s, j->beam_x + j->beam_dir * len * 0.5f, j->beam_y, &h);
-        }
-        if (j->beam_t == 44) {
-            j->nova_on = 1; j->nova_t = 0;
-            j->nova_x = j->beam_x + j->beam_dir * j->beam_len; j->nova_y = j->beam_y;
-            if (parent_ok(s)) {
-                double dmg = pget(s, &g_VAR_plr_dmg);
-                Hit h = { dmg * 1.35, j->beam_dir * 10.0, -9.0, 30, 6, 1.5, 1.5, SPR_MASK64, 1, 1, 1, 1, SPR_HIT_3, C_CYAN, 2 };
-                spawn_hit(s, j->nova_x, j->nova_y, &h);
-            }
-            play(s, SND_EXPLOSION_MEGA, 1.15);
-            camera_shake(3);
-        }
-        if (j->beam_t >= 56) j->beam_on = 0;
+/* drag every opponent near the hole toward it */
+static void pull_toward(CInstance *s, float hx, float hy) {
+    RValue me = rv_undef();
+    YYGML_Variable_GetValue(parent_of(s), g_VAR_plr_team.id, ARRAY_INDEX_NONE, &me, false, false);
+    double my_team = rv_num(&me); rv_free(&me);
+    RValue n = rv_undef(); RValue a = rv_real(OBJ_PARENT_CHARACTER);
+    F_InstanceNumber(&n, s, s, 1, &a);
+    int cnt = (int)rv_num(&n); rv_free(&n);
+    for (int i = 0; i < cnt && i < 16; i++) {
+        RValue id = rv_undef(); RValue fa[2] = { rv_real(OBJ_PARENT_CHARACTER), rv_real(i) };
+        F_InstanceFind(&id, s, s, 2, fa);
+        int iid = INT32_RValue(&id);
+        rv_free(&id);
+        CInstance *c = YYGML_FindInstance(iid);
+        if (!c || c == s) continue;
+        RValue cp = rv_undef(); RValue cid = rv_real(iid);
+        YYGML_Variable_GetValue(&cid, g_VAR_parent.id, ARRAY_INDEX_NONE, &cp, false, false);
+        bool ok = inst_exists_rv(s, &cp);
+        double team = ok ? get_rv(&cp, &g_VAR_plr_team, ARRAY_INDEX_NONE) : my_team;
+        rv_free(&cp);
+        if (!ok || team == my_team) continue;
+        float ex = (float)sget(c, &g_VAR_x), ey = (float)sget(c, &g_VAR_y) - 30;
+        float dx = hx - ex, dy = hy - ey;
+        if (fabsf_(dx) > 150 || fabsf_(dy) > 100) continue;
+        float step = dx * 0.06f;
+        if (step > 2.2f) step = 2.2f;
+        if (step < -2.2f) step = -2.2f;
+        RValue r = rv_undef();
+        RValue pa[3] = { rv_real(ex + step), rv_real(ey + 30), rv_real(OBJ_PARENT_SOLID) };
+        F_PlaceMeeting(&r, c, c, 3, pa);
+        bool blocked = rv_num(&r) > 0.5; rv_free(&r);
+        if (!blocked) bset(c, &g_VAR_x, ex + step);
     }
-    if (j->nova_on && ++j->nova_t >= 36) j->nova_on = 0;
+}
+static void hole_step(CInstance *s, Jeff *j) {
+    if (!j->bh_on) return;
+    int t = ++j->bh_t;
+    if (parent_ok(s)) {
+        pull_toward(s, j->bh_x, j->bh_y);
+        if (t % 8 == 4) {
+            Hit h = { pget(s, &g_VAR_plr_dmg) * 0.18, 0, -1, 12, 3, 1.4, 1.4, SPR_MASK64, 1, 0, 1, 0, SPR_HIT_5, C_FLAME, 1 };
+            spawn_hit(s, j->bh_x, j->bh_y, &h);
+        }
+    }
+    if (t > 70) hole_detonate(s, j);                   /* he was interrupted: it collapses by itself */
 }
 
 /* ------------------------------------------------------------------------------------------ */
-/* special - Bone Breaker (shield + skill together)                                           */
+/* the burning fists / feet                                                                    */
+/* ------------------------------------------------------------------------------------------ */
+static const JeffFrame *jeff_frame(CInstance *s, int *anim) {
+    int sp = (int)sget(s, &g_VAR_sprite_index);
+    for (int a = 0; a < A_COUNT; a++)
+        if (k_jeff_meta_first[a] >= 0 && g_jeff_spr[a] == sp) {
+            int f = (int)sget(s, &g_VAR_image_index), n = k_sprites[a].frames;
+            if (f < 0) f = 0;
+            if (anim) *anim = a;
+            return &k_jeff_meta[k_jeff_meta_first[a] + f % n];
+        }
+    return 0;
+}
+static void jfx_step(Jeff *j) {
+    for (int i = 0; i < N_JFX; i++) if (j->fx[i].on && ++j->fx[i].t >= j->fx[i].n * j->fx[i].tpf) j->fx[i].on = 0;
+}
+/* each time a new burning frame starts: the flame flares where the blow lands */
+static void limb_step(CInstance *s, Jeff *j) {
+    int anim = -1;
+    const JeffFrame *m = jeff_frame(s, &anim);
+    if (!m || !m->hot) { j->last_hot = -1; return; }
+    int key = (int)(m - k_jeff_meta);
+    if (key == j->last_hot) return;
+    j->last_hot = key;
+    float x = sx_(s), y = sy_(s), xs = facing(s);
+    float px = x + xs * (m->hot & 4 ? m->kx : m->hot & 1 ? m->fx : m->bx);
+    float py = y + (m->hot & 4 ? m->ky : m->hot & 1 ? m->fy : m->by);
+    fx_at(j, A_JF_BURST, px + xs * 6, py, 0.4f, 0.4f, 0, 1, 0);
+    if (anim == A_KICK4 && m->ky > -12) {             /* the axe kick's heel hits the ground */
+        fx_at(j, A_JF_CRATER, px, y, 0.8f, 0.8f, 0, 2, 0);
+        camera_shake(2);
+    }
+    play_custom(s, S_FLAME, 0.9 + frand(0, 0.3f));
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* special - Bone Breaker                                                                      */
 /* ------------------------------------------------------------------------------------------ */
 static CInstance *find_target(CInstance *s, int *out_id) {
     RValue me_team_rv = rv_undef();
@@ -615,8 +792,6 @@ static bool special_pressed(CInstance *s) {
     return true;
 }
 
-/* the CPU never holds shield + skill together: when it presses skill with a full bar and the
-   opponent in reach, it uses the Bone Breaker instead */
 static bool cpu_wants_special(CInstance *s) {
     if (!parent_ok(s) || pget(s, &g_VAR_plr_controller) != 2 || pget(s, &g_VAR_keyp_special) < 0.5) return false;
     if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5 || pget(s, &g_VAR_is_dead) > 0.5) return false;
@@ -769,7 +944,6 @@ static void special_abort(CInstance *s, Jeff *j) {
     j->move = MOVE_NONE;
     if (parent_ok(s)) { pset_b(s, &g_VAR_can_gethurt, true); pset_b(s, &g_VAR_is_attacking, false); }
 }
-
 /* ------------------------------------------------------------------------------------------ */
 /* step                                                                                        */
 /* ------------------------------------------------------------------------------------------ */
@@ -783,8 +957,7 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
         if (!pok) special_abort(s, j);
         else special_step(s, j);
         if (j->impact_on && ++j->impact_t >= 30) j->impact_on = 0;
-        swarm_step(s, j);
-        beam_step(s, j);
+        meteors_step(s, j); hole_step(s, j); jfx_step(j);
         return;
     }
     if (pok && j->move == MOVE_NONE && (special_pressed(s) || cpu_wants_special(s))) {
@@ -795,19 +968,22 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
     RValue ret = rv_undef();
     gml_Script_scr_plr_step(s, o, &ret, 0, 0);          /* the game's movement / input framework */
     rv_free(&ret);
-    if (j->home_t > 0) {                                /* homing lunge of the current punch */
+    if (j->home_t > 0) {                                /* homing lunge of the current blow */
         j->home_t--;
         if (pok && pget(s, &g_VAR_is_hurt) < 0.5) bset(s, &g_VAR_hspeed, sget(s, &g_VAR_hspeed) + j->home_dir * j->home_v);
         else j->home_t = 0;
     }
 
-    if (pok && (j->move == MOVE_SKILL1 || j->move == MOVE_SKILL2)) {
+    if (pok && j->move != MOVE_NONE) {
         if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5) j->move = MOVE_NONE;   /* interrupted */
         else if (j->move == MOVE_SKILL1) skill1_step(s, j);
-        else skill2_step(s, j);
+        else if (j->move == MOVE_SKILL2) skill2_step(s, j);
+        else if (j->move == MOVE_FLURRY) flurry_step(s, j);
     }
-    swarm_step(s, j);
-    beam_step(s, j);
+    meteors_step(s, j);
+    hole_step(s, j);
+    jfx_step(j);
+    limb_step(s, j);
     if (j->impact_on && ++j->impact_t >= 30) j->impact_on = 0;
 
     /* charge sound/effect, same call as Erbito Black Rose */
@@ -824,76 +1000,86 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
 void gml_Object_o_jeff_Draw_0(CInstance *s, CInstance *o) {
     (void)o;
     Jeff *j = slot(s, true);
-    float x = (float)sget(s, &g_VAR_x), y = (float)sget(s, &g_VAR_y);
+    float x = sx_(s), y = sy_(s);
     float xs = (float)sget(s, &g_VAR_image_xscale);
     bool pok = parent_ok(s);
-
-    /* runic circle under Jeff while casting skill 1 (drawn behind him) */
-    if (j->move == MOVE_SKILL1) {
-        float a = j->t < 8 ? j->t / 8.0f : 1.0f;
-        blend(s, 1);
-        spr(s, A_S1_CIRCLE, (float)(j->aura_t / 2), x, y - 1, 1.0f + 0.1f * a, 1.0f, 0, C_WHITE, a);
-        blend(s, 0);
-    }
-    /* charging aura */
     bool charging = pok && pget(s, &g_VAR_is_charging) > 0.5;
-    if (charging) {
-        blend(s, 1);
-        spr(s, A_AURA, (float)(j->aura_t / 3), x, y, 1, 1, 0, C_WHITE, 0.85f);
-        blend(s, 0);
+
+    /* meteor shower: the black holes torn open in the sky */
+    if (j->portals_on) {
+        float a = j->portals_t < 10 ? j->portals_t / 10.0f : (j->portals_t > 60 ? (72 - j->portals_t) / 12.0f : 1.0f);
+        if (a < 0) a = 0;
+        for (int k = 0; k < 3; k++)
+            spr(s, A_JF_PORTAL, (float)((j->portals_t / 3 + k) % 8), j->portal_x[k], j->portal_y[k], 0.45f + 0.35f * a, 0.45f + 0.35f * a, 0, C_WHITE, a);
     }
+    /* black hole: the far half of its flame disk, behind Jeff */
+    float g = 0;
+    if (j->bh_on) {
+        g = j->bh_t < 10 ? 0.3f + 0.7f * j->bh_t / 10.0f : 1.0f;
+        spr(s, A_JF_BHRING_B, (float)((j->bh_t / 3) % 8), j->bh_x, j->bh_y, g * 0.75f, g * 0.75f, 0, C_WHITE, 1);
+    }
+    /* dark flame aura while charging or calling a skill */
+    if (charging || j->move == MOVE_SKILL1 || j->move == MOVE_SKILL2)
+        spr(s, A_JF_AURA, (float)((j->aura_t / 3) % 8), x, y + 2, xs < 0 ? -1.0f : 1.0f, 1, 0, C_WHITE, 0.9f);
 
     YYGML_draw_self(s);
 
-    if (j->fail_t > 0) {                                /* special needs a full energy bar */
+    /* the burning fist(s) / foot of this frame: a streak behind it, the flame round it, a glow */
+    const JeffFrame *m = jeff_frame(s, 0);
+    if (m && m->hot) {
+        float f = xs < 0 ? -1.0f : 1.0f;
+        for (int b = 0; b < 3; b++) {
+            if (!(m->hot & (1 << b))) continue;
+            float px = x + f * (b == 0 ? m->fx : b == 1 ? m->bx : m->kx);
+            float py = y + (b == 0 ? m->fy : b == 1 ? m->by : m->ky);
+            spr(s, A_JF_TRAIL, (float)((j->aura_t / 2) % 6), px, py, f * 0.7f, 0.7f, 0, C_WHITE, 0.9f);
+            spr(s, A_JF_FIST, (float)((j->aura_t / 2) % 8), px, py, f, 1, 0, C_WHITE, 1);
+            blend(s, 1);
+            spr(s, A_JF_GLOW, 0, px, py, 0.45f, 0.45f, 0, C_WHITE, 0.8f);
+            blend(s, 0);
+        }
+    }
+    /* black hole: core, near half of the disk, rocks spiralling in */
+    if (j->bh_on) {
+        spr(s, A_JF_BH, (float)((j->bh_t / 3) % 8), j->bh_x, j->bh_y, g, g, 0, C_WHITE, 1);
+        for (int i = 0; i < 5; i++) {
+            float ph = (float)((j->bh_t * 3 + i * 18) % 90) / 90.0f;
+            float ang = i * 1.26f + ph * 6.0f, rr = 70 * (1 - ph) + 8;
+            spr(s, A_JF_ROCK, (float)((j->bh_t / 3 + i) % 8), j->bh_x + rr * cosf_(ang), j->bh_y + rr * 0.4f * sinf_(ang), 1, 1, 0, C_WHITE, g);
+        }
+        spr(s, A_JF_BHRING_F, (float)((j->bh_t / 3) % 8), j->bh_x, j->bh_y, g * 0.75f, g * 0.75f, 0, C_WHITE, 1);
+    }
+    /* meteors, pointing along their fall */
+    for (int i = 0; i < N_MET; i++) {
+        Meteor *mt = &j->met[i];
+        if (!mt->on) continue;
+        float rot = -atan2f_(mt->vy, mt->vx) * 57.29578f;
+        spr(s, A_JF_METEOR, (float)((mt->t / 2) % 8), mt->x, mt->y, 1, 1, rot, C_WHITE, 1);
         blend(s, 1);
-        spr(s, A_S2_ORB, (float)(j->aura_t / 2), x, y - 62, 0.7f, 0.7f, 0, C_RED, j->fail_t / 24.0f);
+        spr(s, A_JF_GLOW, 0, mt->x, mt->y, 0.5f, 0.5f, 0, C_WHITE, 0.7f);
         blend(s, 0);
     }
-    if (charging) {
+    /* one-shot effects: bursts, kick arcs, craters */
+    for (int i = 0; i < N_JFX; i++) {
+        JFx *fx = &j->fx[i];
+        if (!fx->on) continue;
+        if (fx->add) blend(s, 1);
+        spr(s, fx->a, (float)(fx->t / fx->tpf), fx->x, fx->y, fx->xs, fx->ys, fx->rot, C_WHITE, 1);
+        if (fx->add) blend(s, 0);
+    }
+    if (j->fail_t > 0) {                                /* the special needs a full energy bar */
         blend(s, 1);
-        spr(s, A_S1_SPARK, (float)(j->aura_t / 2), x + frand(-14, 14), y - frand(4, 50), 1, 1, 0, C_WHITE, 0.9f);
+        spr(s, A_JF_GLOW, 0, x, y - 62, 0.6f, 0.6f, 0, C_RED, j->fail_t / 24.0f);
         blend(s, 0);
-    }
-
-    blend(s, 1);
-    /* skill 2: snout orb while charging */
-    if (j->move == MOVE_SKILL2 && j->t < 30) {
-        float k = j->t / 26.0f; if (k > 1) k = 1;
-        spr(s, A_S2_ORB, (float)(j->aura_t / 2), x + xs * 27, y - 34, 0.4f + 0.9f * k, 0.4f + 0.9f * k, 0, C_WHITE, 0.5f + 0.5f * k);
-        for (int i = 0; i < 3; i++)
-            spr(s, A_S1_SPARK, (float)((j->aura_t + i * 3) / 2), x + xs * 27 + frand(-30, 30) * (1 - k), y - 34 + frand(-26, 26) * (1 - k), 0.8f, 0.8f, 0, C_CYAN, 0.8f);
-    }
-    /* skill 1: the swarm + its burst */
-    if (j->sw_on) {
-        float img = (float)(j->sw_t / 2);
-        spr(s, A_S1_SWARM, img, j->sw_x, j->sw_y, j->sw_dir, 1, 0, C_WHITE, 1);
-        for (int i = 1; i <= 3; i++)
-            spr(s, A_S1_SWARM, img + i, j->sw_x - j->sw_dir * 10 * i, j->sw_y, j->sw_dir * (1 - 0.15f * i), 1 - 0.15f * i, 0, C_AMBER, 0.45f / i);
-        spr(s, A_S1_SPARK, (float)(j->sw_t / 2), j->sw_x + frand(-30, 30), j->sw_y - frand(0, 40), 1, 1, 0, C_AMBER, 1);
-    }
-    if (j->burst_on) {
-        spr(s, A_S1_BURST, j->burst_t / 2.0f, j->burst_x, j->burst_y, j->sw_dir, 1, 0, C_WHITE, 1);
-    }
-    /* skill 2: the beam, its tip and the nova */
-    if (j->beam_on) {
-        float fade = j->beam_t > 44 ? 1.0f - (j->beam_t - 44) / 12.0f : 1.0f;
-        float wob = 1.0f + 0.12f * (float)((j->beam_t % 4) < 2 ? 1 : -1);
-        spr(s, A_S2_BEAM, (float)(j->beam_t / 2), j->beam_x, j->beam_y, j->beam_dir * j->beam_len / 32.0f, wob * fade, 0, C_WHITE, fade);
-        spr(s, A_S2_TIP, (float)(j->beam_t / 2), j->beam_x + j->beam_dir * j->beam_len, j->beam_y, j->beam_dir, 1, 0, C_WHITE, fade);
-        spr(s, A_S2_ORB, (float)(j->beam_t / 2), j->beam_x, j->beam_y, 1.2f, 1.2f, 0, C_WHITE, fade);
-    }
-    if (j->nova_on) {
-        spr(s, A_S2_NOVA, j->nova_t / 2.25f, j->nova_x, j->nova_y, 1, 1, 0, C_WHITE, 1);
     }
     /* special: dash streaks and the KO impact */
-    if (j->move == MOVE_SPECIAL && j->t <= SP_DASH) {
+    if (j->move == MOVE_SPECIAL && j->t <= SP_DASH)
         spr(s, A_SP_DASH, (float)(j->t / 2), x, y, j->dir, 1, 0, C_WHITE, 1);
-    }
     if (j->impact_on) {
+        blend(s, 1);
         spr(s, A_SP_IMPACT, j->impact_t / 3.0f, j->impact_x, j->impact_y, j->dir, 1, 0, C_WHITE, 1);
+        blend(s, 0);
     }
-    blend(s, 0);
 }
 
 static double legacy0(CInstance *s, YYVAR *f) {
@@ -904,7 +1090,6 @@ static double legacy0(CInstance *s, YYVAR *f) {
     return d;
 }
 
-/* GUI layer: the Bone Breaker cutscene */
 void gml_Object_o_jeff_Draw_64(CInstance *s, CInstance *o) {
     (void)o;
     Jeff *j = slot(s, false);
