@@ -824,39 +824,15 @@ static void ghost_push(Grey *j, const GPose *p, float x, float y, float f, int c
 /* ------------------------------------------------------------------------------------------ */
 /* the overhaul: particles, ribbon trails, lightning, ground marks, impacts                     */
 /* ------------------------------------------------------------------------------------------ */
-#define PR_TRIANGLESTRIP 5
-static int g_vtx_budget;
-static void prim_begin(CInstance *s) {
-    RValue r = rv_undef(); RValue v = rv_real(PR_TRIANGLESTRIP);
-    F_DrawPrimitiveBegin(&r, s, s, 1, &v);
-    rv_free(&r);
-}
-static void prim_end(CInstance *s) {
-    RValue r = rv_undef(); RValue v = rv_undef();
-    F_DrawPrimitiveEnd(&r, s, s, 0, &v);
-    rv_free(&r);
-}
-static void vtx(CInstance *s, float x, float y, int col, float a) {
-    RValue r = rv_undef();
-    RValue v[4] = { rv_real(x), rv_real(y), rv_real(col), rv_real(a < 0 ? 0 : (a > 1 ? 1 : a)) };
-    F_DrawVertexColor(&r, s, s, 4, v);
-    rv_free(&r);
-}
-#define STRIP_MAX 48
-typedef struct { int n; float x[STRIP_MAX], y[STRIP_MAX], a[STRIP_MAX]; int col[STRIP_MAX]; } Strip;
-static void strip_add(Strip *st, float x, float y, int col, float a) {
-    if (st->n >= STRIP_MAX) return;
-    st->x[st->n] = x; st->y[st->n] = y; st->col[st->n] = col; st->a[st->n] = a; st->n++;
-}
-static void strip_flush(CInstance *s, Strip *st) {         /* only real strips, all finite, within budget */
-    int n = st->n;
-    st->n = 0;
-    if (n < 4 || n > g_vtx_budget) return;
-    for (int i = 0; i < n; i++) if (!finite_(st->x[i]) || !finite_(st->y[i])) return;
-    g_vtx_budget -= n;
-    prim_begin(s);
-    for (int i = 0; i < n; i++) vtx(s, st->x[i], st->y[i], st->col[i], st->a[i]);
-    prim_end(s);
+/* a thin stretched GR_SHAPE quad between two points: the proven sprite path, no draw_primitive
+   (the base game never uses draw_primitive/draw_vertex, so we don't either). Additive is set by
+   the caller. */
+static void seg(CInstance *s, float x0, float y0, float x1, float y1, float w, int col, float a) {
+    if (!finite_(x0) || !finite_(y0) || !finite_(x1) || !finite_(y1) || a <= 0.004f) return;
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf_(dx * dx + dy * dy);
+    if (len < 0.3f) len = 0.3f;
+    spr(s, GR_SHAPE, 0, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, (len + w) / 32.0f, (2 * w) / 32.0f,
+        -atan2f_(dy, dx) * 57.29578f, col, a);
 }
 
 /* particles */
@@ -950,8 +926,7 @@ static void trails_clear(Grey *j) { j->tr_n = 0; }
 static void trails_draw(CInstance *s, Grey *j, float strength) {
     if (j->tr_n < 3 || strength <= 0.02f) return;
     for (int k = 0; k < N_TRP; k++) {
-        /* only for the points that are moving fast */
-        float fastest = 0;
+        float fastest = 0;                                           /* only the points moving fast */
         for (int i = 0; i + 1 < j->tr_n && i < 4; i++) {
             const TrailS *a = &j->tr[(j->tr_head - 1 - i + 2 * N_TRS) % N_TRS], *b = &j->tr[(j->tr_head - 2 - i + 2 * N_TRS) % N_TRS];
             if (!a->on[k] || !b->on[k]) continue;
@@ -960,20 +935,16 @@ static void trails_draw(CInstance *s, Grey *j, float strength) {
         }
         if (fastest < (k == 4 ? 4.0f : 3.2f)) continue;
         float w0 = k == 4 ? 5.0f : 3.2f;
-        Strip st; st.n = 0;
         for (int i = 0; i < j->tr_n - 1; i++) {
             const TrailS *a = &j->tr[(j->tr_head - 1 - i + 2 * N_TRS) % N_TRS], *b = &j->tr[(j->tr_head - 2 - i + 2 * N_TRS) % N_TRS];
             if (!a->on[k] || !b->on[k]) break;
             float dx = a->x[k] - b->x[k], dy = a->y[k] - b->y[k], d = sqrtf_(dx * dx + dy * dy);
             if (d > 90) break;                                       /* a teleport: don't smear across */
-            if (d < 0.01f) d = 0.01f;
-            float nx = -dy / d, ny = dx / d, u = (float)i / (j->tr_n - 1), w = w0 * (1 - u);
+            float u = (float)i / (j->tr_n - 1), w = w0 * (1 - u * 0.85f);
             int col = u < 0.3f ? C_WHITE : (u < 0.65f ? C_CYAN : C_MAG);
-            float al = strength * (1 - u) * (k == 4 ? 0.9f : 0.65f);
-            strip_add(&st, a->x[k] + nx * w, a->y[k] + ny * w, col, al);
-            strip_add(&st, a->x[k] - nx * w, a->y[k] - ny * w, col, al * 0.6f);
+            float al = strength * (1 - u) * (k == 4 ? 0.9f : 0.6f);
+            seg(s, a->x[k], a->y[k], b->x[k], b->y[k], w, col, al);
         }
-        strip_flush(s, &st);
     }
 }
 
@@ -1001,15 +972,11 @@ static void bolts_draw(CInstance *s, Grey *j) {
             px[k] = b->x0 + dx * u + nx * off; py[k] = b->y0 + dy * u + ny * off;
         }
         g_rng = save;
-        for (int pass = 0; pass < 2; pass++) {                       /* glow, then the white core */
-            Strip st; st.n = 0;
-            float w = pass ? b->w * 0.35f : b->w;
-            int col = pass ? C_WHITE : b->col;
-            for (int k = 0; k <= SEG; k++) {
-                strip_add(&st, px[k] + nx * w, py[k] + ny * w, col, fade * (pass ? 1.0f : 0.55f));
-                strip_add(&st, px[k] - nx * w, py[k] - ny * w, col, fade * (pass ? 1.0f : 0.55f));
-            }
-            strip_flush(s, &st);
+        for (int pass = 0; pass < 2; pass++) {                       /* wide coloured glow, then a white core */
+            float w = pass ? b->w : b->w * 0.4f;
+            int col = pass ? b->col : C_WHITE;
+            float a = fade * (pass ? 0.5f : 1.0f);
+            for (int k = 0; k < SEG; k++) seg(s, px[k], py[k], px[k + 1], py[k + 1], w, col, a);
         }
     }
 }
@@ -1669,7 +1636,6 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
     float vis = 1;                                           /* materialising / dissolving */
     if (j->entry_t > 0) vis = (1 - (float)j->entry_t / ENTRY_T) * ((g_grey_tick & 2) ? 1.0f : 0.6f);
     if (j->dead_t > 0) { float d = 1 - (float)j->dead_t / DEAD_FADE; vis *= d < 0.35f ? 0.35f : d; }
-    g_vtx_budget = 1400;
     marks_draw(s, j);                                        /* scorch and frost on the floor */
     if (!on_air(s) && !j->sp_on)                            /* a soft shadow */
         spr(s, GR_SHAPE, 1, x, y + 1, 0.55f, 0.1f, 0, 0, 0.25f * al * vis);

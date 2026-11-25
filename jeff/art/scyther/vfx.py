@@ -291,6 +291,15 @@ def impact(k):
     return f.finish()
 
 
+def smear(k):
+    """a soft white bar for stretched trail / ring segments (tinted, additive)."""
+    W, H = 32, 8
+    f = FX(W, H)
+    for x in range(2, W - 2):
+        f.gauss(x + 0.5, H / 2, 1.5, WHITE, 0.5)
+    return f.finish()
+
+
 # name: (fn, frames, origin x, origin y, additive)
 FX_LIST = {
     'bh_core': (bh_core, 8, 36, 36, False),
@@ -307,6 +316,7 @@ FX_LIST = {
     'dash': (dash, 6, 56, 32, True),
     'hitfx': (hitfx, 8, 32, 32, True),
     'spark': (spark, 8, 8, 8, True),
+    'smear': (smear, 1, 16, 4, True),
     'impact': (impact, 10, 56, 56, True),
 }
 

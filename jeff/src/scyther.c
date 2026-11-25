@@ -94,7 +94,6 @@ enum {
 #define SP_CUT  180           /* cutscene length */
 #define SP_AFTER 40
 
-#define PR_TRIANGLESTRIP 5
 #define PI_F 3.14159265f
 #define DEG (PI_F / 180.0f)
 
@@ -205,6 +204,15 @@ static float sinf_(float x) {                     /* small, freestanding sine (r
 }
 static float cosf_(float x) { return sinf_(x + PI_F / 2); }
 static float sqrtf_(float x) { return x > 0 ? __builtin_sqrtf(x) : 0; }
+static float atan2f_(float y, float x) {               /* small, freestanding atan2 (radians) */
+    if (!finite_(x) || !finite_(y)) return 0;
+    float ax = x < 0 ? -x : x, ay = y < 0 ? -y : y, a, r;
+    if (ax < 1e-12f && ay < 1e-12f) return 0;
+    if (ax >= ay) { r = ay / ax; a = r * (0.7853981634f - (ax == ay ? 0 : (r - 1) * (0.2447f + 0.0663f * r))); }
+    else { r = ax / ay; a = 1.5707963268f - r * (0.7853981634f - (r - 1) * (0.2447f + 0.0663f * r)); }
+    if (x < 0) a = PI_F - a;
+    return y < 0 ? -a : a;
+}
 
 static bool fcall1_audio(CInstance *s, double v) {
     RValue r = rv_undef(); RValue a = rv_real(v);
@@ -258,8 +266,9 @@ static void blend(CInstance *s, int mode) {
 }
 /* draw one of our sprites; 2x-density sprites are drawn at half scale */
 static void spr(CInstance *s, int a, float img, float x, float y, float xs, float ys, float rot, int col, float alpha) {
+    if (a < 0 || a >= SC_COUNT) return;
     int id = g_scy_spr[a];
-    if (id < 0) return;
+    if (id < 0 || !finite_(x) || !finite_(y) || !finite_(xs) || !finite_(ys) || !finite_(rot)) return;
     float k = k_scy_sprites[a].half ? 0.5f : 1.0f;
     YYGML_draw_sprite_ext(s, id, img, x, y, xs * k, ys * k, rot, col, alpha);
 }
@@ -283,42 +292,17 @@ static void spr_part(CInstance *s, int a, float img, float l, float t, float w, 
     F_DrawSpritePartExt(&r, s, s, 12, v);
     rv_free(&r);
 }
-/* immediate-mode triangle strips with per-vertex colour (the 3D trails and rings) */
-static void prim_begin(CInstance *s) {
-    RValue r = rv_undef(); RValue v = rv_real(PR_TRIANGLESTRIP);
-    F_DrawPrimitiveBegin(&r, s, s, 1, &v);
-    rv_free(&r);
+/* a soft bar sprite stretched between two points (additive): the proven sprite path, with no
+   draw_primitive/draw_vertex (the base game never uses them, so neither do we anymore). */
+static void seg(CInstance *s, float x0, float y0, float x1, float y1, float w, int col, float a) {
+    if (!finite_(x0) || !finite_(y0) || !finite_(x1) || !finite_(y1) || a <= 0.004f) return;
+    if (a > 1) a = 1;
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf_(dx * dx + dy * dy);
+    if (len < 0.3f) len = 0.3f;
+    YYGML_draw_sprite_ext(s, g_scy_spr[SC_SMEAR], 0, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f,
+                          (len + w) / 32.0f, (2 * w) / 8.0f, -atan2f_(dy, dx) * 57.29578f, col, a);
 }
-static void prim_end(CInstance *s) {
-    RValue r = rv_undef(); RValue v = rv_undef();
-    F_DrawPrimitiveEnd(&r, s, s, 0, &v);
-    rv_free(&r);
-}
-static void vtx(CInstance *s, float x, float y, int col, float a) {
-    RValue r = rv_undef();
-    RValue v[4] = { rv_real(x), rv_real(y), rv_real(col), rv_real(a < 0 ? 0 : (a > 1 ? 1 : a)) };
-    F_DrawVertexColor(&r, s, s, 4, v);
-    rv_free(&r);
-}
-/* a triangle strip is collected first and only sent when it is a real strip (>= 4 vertices, all
-   finite), and each Draw has a vertex budget */
-#define STRIP_MAX 64
-typedef struct { int n; float x[STRIP_MAX], y[STRIP_MAX], a[STRIP_MAX]; int col[STRIP_MAX]; } Strip;
-static int g_vtx_budget;
-static void strip_add(Strip *st, float x, float y, int col, float a) {
-    if (st->n >= STRIP_MAX) return;
-    st->x[st->n] = x; st->y[st->n] = y; st->col[st->n] = col; st->a[st->n] = a; st->n++;
-}
-static void strip_flush(CInstance *s, Strip *st) {
-    int n = st->n;
-    st->n = 0;
-    if (n < 4 || n > g_vtx_budget) return;
-    for (int i = 0; i < n; i++) if (!finite_(st->x[i]) || !finite_(st->y[i])) return;
-    g_vtx_budget -= n;
-    prim_begin(s);
-    for (int i = 0; i < n; i++) vtx(s, st->x[i], st->y[i], st->col[i], st->a[i]);
-    prim_end(s);
-}
+
 static void camera_shake(double amount) {
     RValue cam = rv_real(OBJ_CAMERA);
     RValue v = rv_real(amount);
@@ -616,28 +600,28 @@ static void draw_trail(CInstance *s, Scy *j, int which, int front) {
     const int SUB = 3;
     for (int b = 0; b < 2; b++) {
         int sgn = b ? -1 : 1;
-        {
-            Strip st; st.n = 0;
-            for (int k = 0; k < N_TRAIL - 1; k++) {
-                const Tsmp *p0 = &buf[(head - k + N_TRAIL) % N_TRAIL];
-                const Tsmp *p1 = &buf[(head - k - 1 + N_TRAIL) % N_TRAIL];
-                if (!p0->on || !p1->on || p0->mode != p1->mode) { strip_flush(s, &st); continue; }
-                float d = wrap180(p1->ang - p0->ang);
-                for (int q = 0; q < SUB; q++) {
-                    float u = (float)q / SUB;
-                    float gx = p0->gx + (p1->gx - p0->gx) * u, gy = p0->gy + (p1->gy - p0->gy) * u;
-                    float ang = p0->ang + d * u;
-                    float age = (k + u) / (N_TRAIL - 1);
-                    float al = (1 - age) * (1 - age) * (which ? 0.75f : 0.9f);
-                    float ax, ay, az, bx, by, bz;
-                    blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_MID, sgn, &ax, &ay, &az);
-                    blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_OUT, sgn, &bx, &by, &bz);
-                    if (((az + bz) >= 0) != (front != 0)) { strip_flush(s, &st); continue; }
-                    strip_add(&st, ax, ay, C_DEEP, al * 0.12f);
-                    strip_add(&st, bx, by, C_CORE, al);
+        float pmx = 0, pmy = 0, pox = 0, poy = 0; int have = 0;      /* previous mid / outer point */
+        for (int k = 0; k < N_TRAIL - 1; k++) {
+            const Tsmp *p0 = &buf[(head - k + N_TRAIL) % N_TRAIL];
+            const Tsmp *p1 = &buf[(head - k - 1 + N_TRAIL) % N_TRAIL];
+            if (!p0->on || !p1->on || p0->mode != p1->mode) { have = 0; continue; }
+            float d = wrap180(p1->ang - p0->ang);
+            for (int q = 0; q < SUB; q++) {
+                float u = (float)q / SUB;
+                float gx = p0->gx + (p1->gx - p0->gx) * u, gy = p0->gy + (p1->gy - p0->gy) * u;
+                float ang = p0->ang + d * u;
+                float age = (k + u) / (N_TRAIL - 1);
+                float al = (1 - age) * (1 - age) * (which ? 0.75f : 0.9f);
+                float ax, ay, az, bx, by, bz;
+                blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_MID, sgn, &ax, &ay, &az);
+                blade_pt(p0->mode, gx, gy, ang, p0->xs, BL_OUT, sgn, &bx, &by, &bz);
+                if (((az + bz) >= 0) != (front != 0)) { have = 0; continue; }
+                if (have) {
+                    seg(s, pmx, pmy, ax, ay, 2.6f, C_DEEP, al * 0.5f);   /* inner, faint deep ribbon */
+                    seg(s, pox, poy, bx, by, 2.2f, C_CORE, al);          /* bright tip core */
                 }
+                pmx = ax; pmy = ay; pox = bx; poy = by; have = 1;
             }
-            strip_flush(s, &st);
         }
     }
 }
@@ -647,24 +631,21 @@ static void draw_ring(CInstance *s, const Ring *r, int front) {
     float R = r->r0 + (r->r1 - r->r0) * e;
     float a = r->a * (1 - k) * (k < 0.08f ? k / 0.08f : 1);
     float w = r->w * (1.15f - 0.65f * k);
-    const int SEG = 18;
-    for (int band = 0; band < 2; band++) {
-        Strip st; st.n = 0;
-        for (int i = 0; i <= SEG; i++) {
-            float th = (front ? 0.0f : PI_F) + PI_F * i / SEG;   /* lower half = near half */
-            float c = cosf_(th), sn = sinf_(th);
-            float near = 1 + 0.4f * sn;
-            float ww = w * near, aa = a * (0.5f + 0.5f * near);
-            float px, py, nx, ny;
-            if (!r->vert) { px = r->x + c * R; py = r->y + sn * R * r->sq; nx = c; ny = sn * r->sq; }
-            else { px = r->x + sn * R * r->sq * r->dirx; py = r->y + c * R; nx = sn * r->sq * r->dirx; ny = c; }
-            float L = sqrtf_(nx * nx + ny * ny);
-            if (L < 1e-3f) L = 1;
-            nx /= L; ny /= L;
-            if (band == 0) { strip_add(&st, px - nx * ww, py - ny * ww, r->col, 0); strip_add(&st, px, py, C_CORE, aa); }
-            else { strip_add(&st, px, py, C_CORE, aa); strip_add(&st, px + nx * ww * 0.7f, py + ny * ww * 0.7f, r->col, 0); }
+    const int SEG = 24;
+    float ppx = 0, ppy = 0, pww = 0, paa = 0; int have = 0;
+    for (int i = 0; i <= SEG; i++) {
+        float th = (front ? 0.0f : PI_F) + PI_F * i / SEG;       /* lower half = near half */
+        float c = cosf_(th), sn = sinf_(th);
+        float near = 1 + 0.4f * sn;
+        float ww = w * near, aa = a * (0.5f + 0.5f * near);
+        float px, py;
+        if (!r->vert) { px = r->x + c * R; py = r->y + sn * R * r->sq; }
+        else { px = r->x + sn * R * r->sq * r->dirx; py = r->y + c * R; }
+        if (have) {
+            seg(s, ppx, ppy, px, py, (ww + pww) * 0.5f + 0.6f, r->col, (aa + paa) * 0.5f);
+            seg(s, ppx, ppy, px, py, ((ww + pww) * 0.5f) * 0.4f, C_CORE, (aa + paa) * 0.5f);
         }
-        strip_flush(s, &st);
+        ppx = px; ppy = py; pww = ww; paa = aa; have = 1;
     }
 }
 static void draw_debris(CInstance *s, Scy *j, int front) {
@@ -1911,7 +1892,6 @@ void gml_Object_o_scyther_Draw_0(CInstance *s, CInstance *o) {
     float xs = (float)sget(s, &g_VAR_image_xscale);
     bool pok = parent_ok(s);
     bool charging = pok && pget(s, &g_VAR_is_charging) > 0.5;
-    g_vtx_budget = 1600;
     if (j->void_on && j->void_drawn != j->aura_t) draw_void(s, j);   /* Draw Begin didn't run: draw it here */
 
     /* behind the body: far halves of rings / trails / swings / scythe, debris behind, aura, afterimages */
