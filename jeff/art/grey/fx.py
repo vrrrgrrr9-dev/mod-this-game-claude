@@ -458,6 +458,8 @@ SPRITES = {   # name: (generator, frames, ox, oy)
     'spawn': (spawn, 8, 16, 80), 'preview': (preview, 4, 48, 74),
     'smoke': (smoke, 8, 12, 12), 'star': (star, 8, 24, 24), 'beam': (beam, 6, 12, 64), 'bits': (bits, 2, 2, 3),
 }
+import moonfall                     # MOONFALL: the Earth, the Moon, the plume, the lava world (rendered in numpy)
+SPRITES.update(moonfall.SPRITES)
 MARKERS = [('stand', 4), ('walk', 6), ('run', 6), ('jump', 2), ('fall', 2), ('crouch', 1), ('defend', 1),
            ('charge', 2), ('hurt', 2), ('hurtup', 1), ('hurtdown', 1), ('fallen', 1), ('attack', 1)]
 

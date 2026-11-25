@@ -359,7 +359,7 @@ print('[1] function table registration')
 vars_ = alloc(0x40); uc.mem_write(vars_ + 0x14, struct.pack('<i', 0xe41))
 call('jeff_initllvm', vars_)
 n, = struct.unpack('<i', rd(vars_ + 0x14, 4)); tbl = u64(vars_ + 0x28)
-check(n == 0xe7e, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther + 8 Grey)')
+check(n == 0xe7f, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther + 9 Grey)')
 check(tbl == BASE + J['g_funcs'] if 'g_funcs' in J else tbl != state['func_table'], 'table pointer moved to Jeff table')
 exp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3']
 for k, e in enumerate(exp):
@@ -369,7 +369,7 @@ sexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Draw_72', 'Destroy_0', 'Alar
 for k, e in enumerate(sexp):
     nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe6d + k), 24))
     check(cstr(nm) == 'gml_Object_o_scyther_' + e and fn == BASE + J['gml_Object_o_scyther_' + e], f'entry {0xe6d + k:#x} = {cstr(nm)}')
-gexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3']
+gexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3', 'Draw_72']
 for k, e in enumerate(gexp):
     nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe76 + k), 24))
     check(cstr(nm) == 'gml_Object_o_grey_' + e and fn == BASE + J['gml_Object_o_grey_' + e], f'entry {0xe76 + k:#x} = {cstr(nm)}')
@@ -1001,7 +1001,7 @@ call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
 check(menu.get('char_name') == 'Grey' and menu.get('char_obj') == 687, 'name / object 687')
 check(sprites.get(menu.get('char_face'), ('',))[0] == 'grey_face.png', 'portrait card = grey_face.png')
 ngr = len(sprites) - nspr
-check(ngr == 37 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
+check(ngr == 49 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
 check(any(c[0] == 'object_set_sprite' and c[1] == 687 for c in calls), 'object_set_sprite(o_grey, preview)')
 
 print('[23] Grey: create + alarm0')
@@ -1145,7 +1145,9 @@ check(len(hits) >= 12, f'Element Overload: {len(hits)} hits')
 check({'grey_spike.png', 'grey_pillar.png', 'grey_spear.png'} <= seen, 'ice prison, fire pillar, spear rain drawn')
 check(all(abs(c[2] - 470) < 60 for c in hits), 'all of it lands on the opponent')
 
-print('[28] Grey special: SYSTEM CRASH')
+print('[28] Grey special: MOONFALL + the lava world')
+g_bk = new_inst(DECOR['o_map_bk']); g_bk.set('depth', 900000); g_bk.set('visible', 1)
+g_tree = new_inst(DECOR['o_tile_tree_1']); g_tree.set('depth', 300); g_tree.set('visible', 1)
 grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 470); g_ectrl.set('plr_hp', 1900)
 for _ in range(20): gtick(press_next=False)
 calls.clear()
@@ -1154,36 +1156,52 @@ gtick(gui=True)
 gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
 check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar spent, untouchable')
 check(grey.get('depth') == -15000, 'drawn over the HUD')
-seen, hits, spawns, blue, bad, maxd, maxb = set(), [], 0, 0, False, 0, 0
-for t in range(200):
-    calls.clear(); gtick(gui=True)
-    seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
-    hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-    blue += sum(1 for c in calls if c[0] == 'colour' and c[1] == (16 | 44 << 8 | 178 << 16))
+seen, hits, bad, maxd, maxb, held, hit_t = set(), [], False, 0, 0, True, -1
+by_phase = {}
+for t in range(1, 461):
+    calls.clear()
+    call('gml_Object_o_grey_Draw_72', grey.ptr, grey.ptr)
+    gtick(gui=True)
+    names = {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites}
+    seen |= names
+    for ph, (a_, b_) in (('ground', (40, 90)), ('space', (120, 236)), ('impact', (242, 330)), ('lava', (380, 440))):
+        if a_ <= t < b_: by_phase.setdefault(ph, set()).update(names)
+    new_hits = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
+    if new_hits and hit_t < 0: hit_t = t
+    hits += new_hits
     bad |= any(c[0] in GBAD for c in calls)
-    maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'prim_end')))
+    maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'stretched', 'part', 'prim_end')))
     maxb = max(maxb, sum(1 for c in calls if c[0] == 'blend_switch'))
-    if t < 150: check_x = gfoe.get('x')
-check(len(hits) >= 13, f'twelve clone strikes and the blade: {len(hits)} hits')
-check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 'grey_fireburst.png', 'grey_spike.png',
-       'grey_beam.png', 'grey_star.png', 'grey_smoke.png'} <= seen,
-      f'clones, elements, the beam, FATAL ERROR drawn (missing {sorted({"grey_spawn.png", "grey_fatal.png", "grey_shatter.png", "grey_bolt.png", "grey_fireburst.png", "grey_spike.png", "grey_beam.png", "grey_star.png", "grey_smoke.png"} - seen)})')
-check(blue >= 3, f'the blue screen of death flashes after the blade ({blue} frames)')
+    if t < 370 and abs(gfoe.get('x') - 470) > 1: held = False
+    calls_keep = [c for c in calls if c[0] == 'layer_visible']
+    calls.clear(); calls.extend(calls_keep)
+check(len(hits) == 1 and 370 <= hit_t <= 376, f'one blow, when it lands back on the ground: {len(hits)} hits at frame {hit_t}')
+check({'grey_moon_big.png'} <= by_phase.get('ground', set()), 'the Moon appears in the sky over the battlefield')
+check({'grey_earth.png', 'grey_moon_big.png', 'grey_stars.png'} <= by_phase.get('space', set()), f'space: Earth, Moon, stars ({sorted(by_phase.get("space", set()))})')
+check({'grey_earth_top.png'} <= seen, 'the horizon crop as the camera clears the atmosphere')
+check({'grey_earth_melt.png', 'grey_plume.png', 'grey_glow.png', 'grey_rocks.png'} <= by_phase.get('impact', set()),
+      f'impact: melt front, plume, glow, Moon debris ({sorted(by_phase.get("impact", set()))})')
+check({'grey_lava_sky.png', 'grey_lava_far.png', 'grey_lava_mid.png', 'grey_lava_crust.png'} <= by_phase.get('lava', set()),
+      f'the lava world drawn afterwards ({sorted(by_phase.get("lava", set()))})')
 check(not bad, 'no invalid draws or primitives during the special')
 check(maxd < 1400, f'draw calls per frame stay bounded (max {maxd})')
 check(maxb <= 24, f'blend-mode switches per frame stay few, so draws batch (max {maxb})')
-check(abs(check_x - 470) < 1, 'the opponent is held in place until the blade')
+check(held, 'the opponent is held in place until the blow')
+check(g_bk.get('visible') == 0 and g_tree.get('visible') == 0, 'the stage backdrop and the scenery behind the fighters hidden')
 check(gr_ctrl.get('can_gethurt') == 1 and grey.get('depth') != -15000, 'vulnerable again, depth restored')
 calls.clear(); gtick()
 check(any(c[0] == 'scr_plr_step' for c in calls), 'framework step resumes afterwards')
+calls.clear(); call('gml_Object_o_grey_Draw_72', grey.ptr, grey.ptr)
+check({'grey_lava_sky.png', 'grey_lava_crust.png'} <= {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites},
+      'the lava world stays for the rest of the match')
 
-print('[29] Grey as the CPU: SYSTEM CRASH with a full bar')
+print('[29] Grey as the CPU: MOONFALL with a full bar')
 gr_ctrl.set('plr_controller', 2); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
 grey.set('x', 400); gfoe.set('x', 470)
 calls.clear(); gtick()
 gr_ctrl.set('keyp_special', 0)
 check(gr_ctrl.get('plr_energy') == 0, 'CPU fired it without holding shield')
-for _ in range(200): gtick(); calls.clear()
+for _ in range(460): gtick(); calls.clear()
 check(gr_ctrl.get('can_gethurt') == 1, 'and finished it')
 gr_ctrl.set('plr_controller', 0)
 

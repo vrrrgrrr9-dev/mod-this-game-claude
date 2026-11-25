@@ -61,6 +61,7 @@ void gml_Object_o_grey_Create_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Step_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Draw_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Draw_64(CInstance *, CInstance *);
+void gml_Object_o_grey_Draw_72(CInstance *, CInstance *);
 void gml_Object_o_grey_Destroy_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Alarm_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Alarm_2(CInstance *, CInstance *);
@@ -111,6 +112,7 @@ void jeff_initllvm(char *vars) {
     add(&n, "gml_Object_o_grey_Alarm_0", (void *)gml_Object_o_grey_Alarm_0);         /* 0xe7b */
     add(&n, "gml_Object_o_grey_Alarm_2", (void *)gml_Object_o_grey_Alarm_2);         /* 0xe7c */
     add(&n, "gml_Object_o_grey_Alarm_3", (void *)gml_Object_o_grey_Alarm_3);         /* 0xe7d */
+    add(&n, "gml_Object_o_grey_Draw_72", (void *)gml_Object_o_grey_Draw_72);         /* 0xe7e */
     *(YYCodeFunc **)(vars + 0x28) = g_funcs;
     *(int *)(vars + 0x14) = n;
 }

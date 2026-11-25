@@ -16,8 +16,11 @@
  *  run + attack: Glitch Dash (through him, echoes slash behind)
  *  skill 1: Clone Legion (four clones: ice, fire, spear from the sky, lightning)
  *  skill 2: Element Overload (ice prison, fire pillar, glitch spear rain)
- *  special (shield + skill, full bar): SYSTEM CRASH - the screen glitches, clones dash through him
- *            from every side, then Grey brings down a giant glitch blade (huge unblockable hit)
+ *  special (shield + skill, full bar): MOONFALL - Grey tears the sky open and glitches the Moon into
+ *            it; the camera climbs out of the atmosphere and pulls back to watch the Moon, cracking inside
+ *            the Roche limit, fall onto the Earth (real size ratio, Kepler fall, oblique impact, vapour
+ *            plume, a crust wave melting the globe, ejecta on ballistic arcs, a debris disc). White-out,
+ *            back down: the battlefield is a lava world for the rest of the match, and the blow lands.
  *
  * Same framework as the other fighters: scr_plr_step drives movement / input, combos run through
  * alarm[3] / alarm[2], hits are o_mask_hit hitboxes.  The framework's sprite_index values are tiny
@@ -26,6 +29,7 @@
 #include "yyc.h"
 #include "grey_assets.h"
 #include "grey_moves.h"
+#include "stage_decor.h"
 
 #define GREY_CHAR_ID  1007
 #define OBJ_GREY      687
@@ -50,6 +54,9 @@
 #define SND_STRONG2 163
 #define SND_EXPLOSION_MEGA 100
 #define SND_BALL_CHARGE 266
+#define SND_THUNDER 177
+#define SND_DARKEXPLOSION 82
+#define SND_MAGIC3 203
 
 #define C_WHITE  0xFFFFFF
 #define RGB(r, g, b) ((int)((r) | ((g) << 8) | ((b) << 16)))   /* GameMaker colours are BGR */
@@ -64,7 +71,6 @@
 #define C_CLONE  RGB(90, 200, 240)
 #define C_CLONEB RGB(60, 140, 190)
 #define C_CLONEL RGB(10, 40, 70)
-#define BSOD_BLUE RGB(16, 44, 178)
 
 #define PI_F 3.14159265f
 #define DEG (PI_F / 180.0f)
@@ -75,7 +81,17 @@
 #define N_GHOST 8
 #define MOVE_NONE (-1)
 #define BLEND_N 6
-#define SPC_DUR 176            /* SYSTEM CRASH length */
+/* MOONFALL (the special): the timeline, in frames */
+#define MF_RIFT   24           /* a rift tears open in the sky */
+#define MF_MOON   40           /* the Moon glitches into the sky */
+#define MF_ASC    90           /* the camera rises out of the atmosphere */
+#define MF_SPACE  114          /* space: pull back from Earth's horizon to the whole system */
+#define MF_FALL   176          /* inside the Roche limit: the Moon breaks up and falls */
+#define MF_HIT    240          /* contact */
+#define MF_AFTER  324          /* the aftermath: a magma ocean, a debris ring forming */
+#define MF_FLASH  360          /* white out, back down to the ground */
+#define MF_LAND   372          /* the battlefield is a lava world; the blow lands */
+#define SPC_DUR   440
 #define ENTRY_T 40             /* frames he takes to materialise when the match starts */
 #define DEAD_FADE 90           /* frames a KO takes to dissolve him (down to a faint ghost) */
 
@@ -86,6 +102,9 @@ typedef struct { int on, kind, t; float x, y, vx, vy, dmg, f, floor_y; } Proj;
 typedef struct { int on, t, hit; float x, y, size, vf, dmg, f; } Spike;
 typedef struct { int on, t, a, tpf, n, add, col; float x, y, xs, ys, rot; } Fx;
 typedef struct { int on, t, col; GPose p; float x, y, f; } Ghost;
+#define N_GP 260               /* MOONFALL space particles (Earth radii, Earth at the origin) */
+enum { GQ_EJECTA, GQ_ROCK, GQ_DUST, GQ_SPLASH };
+typedef struct { unsigned char on, kind; short t, life; float x, y, z, vx, vy, vz, rot, vr, size; int frame; } GPt;
 #define N_PART 200
 #define N_TRS 9                /* ribbon trail samples */
 #define N_TRP 5                /* tracked points: front hand, back hand, front foot, back foot, blade tip */
@@ -114,7 +133,9 @@ typedef struct {
     int hitstop, scr_t, was_air;
     int entry_t, prev_loco, dead_t;             /* materialising at the start, getting hit, KO'd */
     int pz_tl, pz_t, pz_ev, win_wait;           /* a pose override that is not an attack: victory, idle flourish */
-    /* SYSTEM CRASH */
+    GPt gp[N_GP]; int gp_head;                  /* MOONFALL: ejecta, moon debris, the Roche stream */
+    int lava_on, lava_t, lava_hidden, lava_drawn; float lava_gy;   /* the destroyed world after MOONFALL */
+    /* MOONFALL */
     int sp_on, sp_t, tgt_id, depth_saved, hit_done; float tgt_x, tgt_y; double old_depth;
 } Grey;
 
@@ -541,7 +562,7 @@ static const int FRONT_LEG[2][2] = { { 0, 10 }, { 10, 11 } }, FRONT_ARM[2][2] = 
 static void layer(CInstance *s, const V2 *J, const int (*b)[2], int nb, float extra, int col, float al) {
     for (int i = 0; i < nb; i++) bone(s, J[b[i][0]], J[b[i][1]], G_W_LIMB + extra, col, al, 1);
 }
-/* the weapon in his front hand: sword, spear or the giant blade (SYSTEM CRASH) */
+/* the weapon in his front hand: sword, spear or the giant blade */
 static void draw_weapon(CInstance *s, const GPose *p, const V2 *J, float f, float al, int col) {
     int wk = (p->flags >> 2) & 3;
     if (!wk) return;
@@ -1228,7 +1249,7 @@ static int loco_pose(CInstance *s, Grey *j, GPose *o) {
 }
 
 /* ------------------------------------------------------------------------------------------ */
-/* SYSTEM CRASH                                                                                */
+/* the special: readiness, the target, starting and ending it                                  */
 /* ------------------------------------------------------------------------------------------ */
 static bool special_ready(CInstance *s) {
     if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5 || pget(s, &g_VAR_is_dead) > 0.5) return false;
@@ -1294,98 +1315,791 @@ static void special_end(CInstance *s, Grey *j) {
     j->sp_on = 0;
     if (parent_ok(s)) pset_b(s, &g_VAR_can_gethurt, true);
 }
-#define SPC_STRIKE0 16          /* the clones' strikes: twelve, one every 6 frames */
-#define SPC_TELE 98             /* he blinks above him */
-#define SPC_SLAM (SPC_TELE + 30)
+/* ------------------------------------------------------------------------------------------ */
+/* MOONFALL                                                                                    */
+/*   Grey reaches up, tears the sky open and glitches the Moon into it. The camera rises out of */
+/*   the atmosphere and pulls back to the whole system: Earth and the Moon at their real size   */
+/*   ratio (3.67 : 1), the Moon well inside the Roche limit, so it cracks, sheds a stream of     */
+/*   debris and falls. Contact is played slow: a white-hot vapour plume, a shockwave racing      */
+/*   around the globe, molten ejecta on ballistic arcs (inverse-square gravity, the fast ones    */
+/*   escape into a ring), the Moon flattening and sinking, the crust turning to a magma ocean.  */
+/*   Then a white-out, back down: the battlefield is now a lava world, and the blow lands.       */
+/* ------------------------------------------------------------------------------------------ */
+typedef struct { float x, y, z; } V3;
+static V3 v3(float x, float y, float z) { V3 r = { x, y, z }; return r; }
+static V3 v3s(V3 a, V3 b, float k) { return v3(a.x + b.x * k, a.y + b.y * k, a.z + b.z * k); }   /* a + b k */
+static V3 v3k(V3 a, float k) { return v3(a.x * k, a.y * k, a.z * k); }
+static float v3dot(V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static float v3len(V3 a) { return sqrtf_(v3dot(a, a)); }
+static V3 v3n(V3 a) { float l = v3len(a); return l > 1e-6f ? v3k(a, 1 / l) : v3(0, 0, 1); }
+static float expf_(float x) {                       /* small, bounded exp: (1 + x/256)^256 */
+    if (x < -30) return 0;
+    if (x > 20) x = 20;
+    float r = 1 + x / 256.0f;
+    for (int i = 0; i < 8; i++) r *= r;
+    return r;
+}
+
+/* Earth at the origin, radius 1; view space: x right, y down, z towards the camera (= art/grey/moonfall.py) */
+static const V3 MF_N  = { 0.66026f, -0.50020f, 0.56022f };   /* the contact point (= the melt textures') */
+static const V3 MF_T1 = { 0.60386f, 0.79709f, 0.0f };         /* the tangent plane there: along the ground ... */
+static const V3 MF_T2 = { -0.44655f, 0.33830f, 0.82834f };    /* ... and up towards the camera */
+static const V3 MF_TO = { -0.68865f, -0.10557f, 0.71736f };   /* downrange: where the Moon was heading */
+static const V3 MF_H  = { -0.29968f, -0.85945f, -0.41417f };  /* its orbit's normal: the debris disc's plane */
+#define MF_RM   0.2725f       /* Moon radius / Earth radius (the real ratio) */
+#define MF_GM   0.000588f     /* G M_earth in Earth radii^3 / frame^2: the fall from 2.75 radii takes 200 frames */
+#define MF_VR   (-0.018375f)  /* the Moon's velocity at contact: radial ... */
+#define MF_VT   0.014221f     /* ... and downrange (a 38 degree oblique impact, the likeliest kind) */
+#define MF_ROT  37.1467f      /* the Moon sprite's rotation: its local +x points away from the Earth */
+#define MF_F    2.15f         /* the space camera's focal length, in GUI heights */
+#define MELT_N  5
+static const float MELT_TH[MELT_N] = { 0.35f, 0.85f, 1.45f, 2.2f, 3.5f };   /* = moonfall.py MELT (radians) */
+
+static float ease_io(float u) { u = clampf(u, 0, 1); return u * u * (3 - 2 * u); }
+static float lin01f(float t, float a, float b) { return clampf((t - a) / (b - a), 0, 1); }
+static float lin01(int t, int a, int b) { return lin01f((float)t, (float)a, (float)b); }
+
+static V3 mf_grav(V3 p) {
+    float r2 = v3dot(p, p) + 1e-4f, r = sqrtf_(r2);
+    return v3k(p, -MF_GM / (r2 * r));
+}
+/* The Moon's centre at frame t. From the teleport it falls freely (Kepler: from 2.75 Earth radii with 45 %
+   of the circular speed, so it swings in on a curve and strikes obliquely). Integrated backwards from the
+   moment of contact, so it touches down exactly at MF_HIT on MF_N. Then it ploughs in along its path. */
+static float mf_pen(int t) {                         /* how far it has ploughed in (Earth radii) */
+    if (t <= MF_HIT) return 0;
+    return 0.52f * (1 - expf_(-(float)(t - MF_HIT) / 34.0f));
+}
+static V3 mf_moon_c(int t, V3 *vel) {
+    V3 p = v3k(MF_N, 1 + MF_RM), v = v3s(v3k(MF_N, MF_VR), MF_TO, MF_VT);
+    if (t >= MF_HIT) {
+        if (vel) *vel = v3k(v, expf_(-(float)(t - MF_HIT) / 34.0f) * 0.6f);
+        return v3s(p, v3n(v), mf_pen(t));
+    }
+    int n = (MF_HIT - (t < MF_MOON ? MF_MOON : t)) * 4;
+    const float dt = -0.25f;
+    V3 a = mf_grav(p);
+    for (int i = 0; i < n; i++) {                    /* velocity Verlet: time-reversible, so this is the fall */
+        v = v3s(v, a, dt * 0.5f); p = v3s(p, v, dt); a = mf_grav(p); v = v3s(v, a, dt * 0.5f);
+    }
+    if (vel) *vel = v;
+    return p;
+}
+/* the melt front: the crustal wave racing round the globe from the contact point (radians) */
+static float mf_melt(int t) {
+    if (t <= MF_HIT) return 0;
+    float k = (float)(t - MF_HIT);
+    float th = 0.22f * (1 - expf_(-k / 5.0f)) + 0.031f * k;
+    return th < 3.5f ? th : 3.5f;
+}
+
+static GPt *gp_new(Grey *j, int kind, V3 p, V3 v, int life, float size) {
+    GPt *q = &j->gp[j->gp_head];
+    j->gp_head = (j->gp_head + 1) % N_GP;
+    q->on = 1; q->kind = (unsigned char)kind; q->t = 0; q->life = (short)life;
+    q->x = p.x; q->y = p.y; q->z = p.z; q->vx = v.x; q->vy = v.y; q->vz = v.z;
+    q->rot = 0; q->vr = 0; q->size = size; q->frame = (int)(rnd() % 8);
+    return q;
+}
+/* a random direction: the outward normal at the impact, spread, leaning downrange (an oblique impact
+   throws most of its ejecta forward) */
+static V3 mf_cone(float spread, float down) {
+    float a = frand(0, 6.2832f), r = frand(0, spread);
+    V3 d = v3s(v3s(v3s(MF_N, MF_T1, cosf_(a) * r), MF_T2, sinf_(a) * r), MF_TO, down);
+    return v3n(d);
+}
+static void gp_step(Grey *j, int t) {
+    float dt = (t >= MF_HIT && t < MF_HIT + 44) ? 0.6f : 1.0f;      /* the first moments in slow motion */
+    for (int i = 0; i < N_GP; i++) {
+        GPt *q = &j->gp[i];
+        if (!q->on) continue;
+        if (++q->t >= q->life) { q->on = 0; continue; }
+        if (q->kind == GQ_SPLASH) continue;
+        V3 p = v3(q->x, q->y, q->z), v = v3(q->vx, q->vy, q->vz);
+        V3 a = mf_grav(p);                                         /* inverse-square gravity */
+        v = v3s(v, a, dt * 0.5f); p = v3s(p, v, dt); a = mf_grav(p); v = v3s(v, a, dt * 0.5f);
+        q->x = p.x; q->y = p.y; q->z = p.z; q->vx = v.x; q->vy = v.y; q->vz = v.z;
+        float r = v3len(p);
+        if (r < 1.0f && q->t > 4) {                                 /* back down: it splashes into the crust */
+            if (q->kind != GQ_DUST) gp_new(j, GQ_SPLASH, v3k(p, 1 / (r + 1e-6f)), v3(0, 0, 0), 14 + (int)(rnd() % 10),
+                                         q->kind == GQ_ROCK ? 0.05f : 0.03f);
+            q->on = 0;
+        } else if (r > 14) q->on = 0;                               /* escaped */
+    }
+}
+
+/* the camera view in the room (Draw Begin / Draw: the world; the lava world and the sky Moon use it) */
+static double fcall1(CInstance *s, void (*fn)(RValue *, CInstance *, CInstance *, int, RValue *), RValue a) {
+    RValue r = rv_undef();
+    fn(&r, s, s, 1, &a);
+    double d = rv_num(&r);
+    rv_free(&r);
+    return d;
+}
+static void mf_view(CInstance *s, float *vx, float *vy, float *vw, float *vh) {
+    RValue zero = rv_real(0);
+    double cam = fcall1(s, F_ViewGetCamera, zero);
+    RValue camv = rv_real(cam);
+    *vx = (float)fcall1(s, F_CameraGetViewX, camv); *vy = (float)fcall1(s, F_CameraGetViewY, camv);
+    *vw = (float)fcall1(s, F_CameraGetViewWidth, camv); *vh = (float)fcall1(s, F_CameraGetViewHeight, camv);
+    if (!(*vw > 16) || !(*vh > 16) || *vw > 8000 || *vh > 8000 || !finite_(*vx) || !finite_(*vy)) {
+        *vw = 600; *vh = 300; *vx = sx_(s) - 300; *vy = sy_(s) - 200;       /* no camera: around us */
+    }
+}
+/* where the Moon hangs in the sky over the battlefield (world space) */
+static void mf_sky_moon_at(CInstance *s, float *mx, float *my, float *mr) {
+    float vx, vy, vw, vh;
+    mf_view(s, &vx, &vy, &vw, &vh);
+    *mx = vx + vw * 0.64f; *my = vy + vh * 0.30f; *mr = vh * 0.26f;
+}
+
+static void lava_activate(CInstance *s, Grey *j);
 static void special_step(CInstance *s, Grey *j, GPose *pose) {
     int t = ++j->sp_t;
     bset(s, &g_VAR_hspeed, 0); bset(s, &g_VAR_vspeed, 0);
     if (!j->hit_done) target_frozen(s, j, true);
-    float tx = j->tgt_x, ty = j->tgt_y;
-    static const float HY[3] = { 0, -42, -20 };
-    for (int i = 0; i < 12; i++) {
-        float side = (i % 2 ? 1.0f : -1.0f) * j->dir, dy = HY[i % 3], dist = 64 + 10 * (i % 3);
-        if (t == SPC_STRIKE0 + i * 6) {                     /* from both sides, high and low */
-            spawn_clone(j, GT_CL_SC_STRIKE, tx + side * dist, ty + dy, -side, GC_GLITCH);
-            if (i % 3 == 0) play_c(s, GS_CLONE, 0.85 + 0.04 * i);
-        }
-        if (t == SPC_STRIKE0 + i * 6 + 8) {                 /* each strike brings an element */
-            float hx = tx, hy = ty - 30 + dy * 0.4f;
-            bolt(j, tx + side * dist, ty + dy - 30, hx, hy, 6, 2.5f, C_CYAN);
-            j->scr_t = 2;
-            switch (i % 4) {
-            case 0: fx_kind(j, GF_FIREBURST, hx, hy, 0.8f, j->dir); burst(j, PK_EMBER, hx, hy, 14, 3.5f, 36, 2.6f, C_FIRE); break;
-            case 1: spawn_spike(j, tx - 12, ty, 1.0f, -1.0f, 0.12f, j->dir); spawn_spike(j, tx + 12, ty, 1.15f, -1.0f, 0.12f, j->dir); break;
-            case 2: fx_kind(j, GF_BOLT, hx, ty, 1.0f, j->dir);
-                    bolt(j, hx + frand(-10, 10), ty - 200, hx, ty - 6, 10, 4.5f, C_VOLT); burst(j, PK_SPARK, hx, ty - 10, 12, 6, 12, 1.6f, C_VOLT); break;
-            case 3: fx_kind(j, GF_GLITCH, hx, hy, 1.5f, j->dir); burst(j, PK_PIXEL, hx, hy, 18, 4.0f, 30, 2.6f, glitch_col()); break;
-            }
-        }
-    }
-    if (t == SPC_TELE) {                                    /* up above him */
-        float nx = tx - j->dir * 14;
-        fx_kind(j, GF_GLITCH, sx_(s), sy_(s) - 30, 1.4f, j->dir);
-        burst(j, PK_PIXEL, sx_(s), sy_(s) - 30, 24, 4, 30, 2.4f, C_CYAN);
-        if (free_at(s, nx, sy_(s))) bset(s, &g_VAR_x, nx);
-        fx_kind(j, GF_SPAWN, sx_(s), sy_(s), 1.6f, j->dir);
-        trails_clear(j);
-        j->glitch_t = 12;
-    }
-    if (t >= SPC_TELE) {
-        int ft = t - SPC_TELE;
-        tl_sample(GT_SP_FINALE, (float)ft, pose);
-        if (ft == 10) play(s, SND_BALL_CHARGE, 0.8);
-        if (ft == 29) play(s, SND_WOOSH3, 0.7);
-        if (ft >= 8 && ft < 30) {                           /* the giant blade charges: energy pours up into it */
-            float bx = sx_(s) + frand(-30, 30), by = sy_(s) - 96 - 60;
-            if (ft % 2 == 0) part(j, PK_STREAK, sx_(s) + frand(-40, 40), sy_(s) - frand(0, 40), 0, -6, 8, 1.4f, C_CYAN);
-            if (ft % 4 == 0) bolt(j, sx_(s), sy_(s) - 110, bx, by, 4, 2.0f, C_CYAN);
-            if (ft % 3 == 0) part(j, PK_BIT, sx_(s) + frand(-20, 20), sy_(s) - frand(20, 80), 0, -1.6f, 26, 1, C_CYAN);
-        }
-    } else {
+    float x = sx_(s), y = sy_(s);
+    /* Grey: reaching up to the sky (and holding it there), then the cool pose once it is done */
+    if (t < MF_LAND) {
         base_pose(GPZ_CHARGE, pose);
-        pose->hy += sinf_(t * 0.8f) * 0.8f;
-        if (t % 5 == 0) j->glitch_t = 3;
-        if (t % 2 == 0) part(j, PK_BIT, sx_(s) + frand(-16, 16), sy_(s) - frand(0, 50), 0, -1.2f, 30, 1, (t / 2) % 2 ? C_CYAN : C_MAG);
+        float reach = ease_io(lin01(t, 4, 22));
+        pose->a[GA_UF] = -10 + (-78 + 10) * reach; pose->a[GA_LF] = -20 + (-96 + 20) * reach;
+        pose->hy += sinf_(t * 0.7f) * 0.6f * (1 - reach);
+        if (t % 7 == 0) j->glitch_t = 3;
+        if (t % 2 == 0) part(j, PK_BIT, x + frand(-16, 16), y - frand(0, 50), 0, -1.4f, 30, 1, (t / 2) % 2 ? C_CYAN : C_MAG);
+    } else base_pose(GPZ_POSE_COOL, pose);
+    /* sound: huge things sound low, and space is nearly silent - the impact is a deep, slowed boom */
+    if (t == 1) { play(s, SND_SUSPENSE, 0.8); play_c(s, GS_GLITCH, 0.6); }
+    if (t == MF_RIFT) { play(s, SND_THUNDER, 0.55); play_c(s, GS_GLITCH, 0.45); }
+    if (t == MF_MOON) { play(s, SND_MAGIC3, 0.5); play_c(s, GS_CRASH, 0.55); camera_shake(2); }
+    if (t == MF_MOON + 20 || t == MF_MOON + 38) play(s, SND_THUNDER, 0.4);
+    if (t == MF_ASC) play(s, SND_WOOSH3, 0.45);
+    if (t == MF_FALL) play(s, SND_BALL_CHARGE, 0.45);
+    if (t == MF_HIT) { play(s, SND_EXPLOSION_MEGA, 0.45); play(s, SND_DARKEXPLOSION, 0.4); }
+    if (t == MF_HIT + 26) play(s, SND_WINLOSE_IMPACT, 0.55);
+    if (t == MF_AFTER) play(s, SND_DARKEXPLOSION, 0.35);
+    /* on the ground: the sky tears where the Moon will come through */
+    float mx, my, mr;
+    if (t >= MF_RIFT && t < MF_ASC) mf_sky_moon_at(s, &mx, &my, &mr);
+    else mx = my = mr = 0;
+    if (t >= MF_RIFT && t < MF_MOON + 6 && t % 2 == 0) {
+        float h = mr * (0.3f + 1.4f * lin01(t, MF_RIFT, MF_MOON));
+        float ry = my + frand(-h, h), rx = mx + frand(-0.2f, 0.2f) * mr;
+        bolt(j, rx, ry - frand(10, 30), rx + frand(-mr * 0.3f, mr * 0.3f), ry + frand(10, 40), 5, 2.0f, (t / 2) % 4 ? C_CYAN : C_MAG);
     }
-    if (t == SPC_SLAM && !j->hit_done) {                    /* the giant blade comes down */
+    /* the Moon is overhead, ten thousand km up: the tides it raises in the crust are kilometres high.
+       The ground convulses - earthquakes, dust shaken up, rocks jumping */
+    if (t >= MF_MOON && t < MF_ASC) {
+        float vx, vy, vw, vh;
+        mf_view(s, &vx, &vy, &vw, &vh);
+        if (t % 9 == 0) camera_shake(t < MF_MOON + 20 ? 2 : 1);
+        if (t % 3 == 0) {
+            float gx = vx + frand(0, vw);
+            part(j, PK_SMOKE, gx, y - 2, frand(-0.5f, 0.5f), -frand(0.3f, 0.9f), 46, frand(6, 10), RGB(126, 116, 108));
+            Part *q = part(j, PK_SHARD, gx, y - 2, frand(-1.2f, 1.2f), -frand(2.5f, 5.0f), 34, frand(1.6f, 3.0f), RGB(96, 88, 82));
+            if (q) q->g = 0.32f;
+        }
+    }
+    /* space: the Roche stream - the near side of the broken Moon falls ahead of it, the far side lags */
+    if (t >= MF_FALL - 20 && t < MF_HIT && t % 2 == 0) {
+        V3 mv, c = mf_moon_c(t, &mv);
+        V3 e = v3n(c);                                       /* from the Earth through the Moon */
+        float u = lin01(t, MF_FALL - 20, MF_HIT);
+        int n = 1 + (int)(u * 3);
+        for (int k = 0; k < n; k++) {
+            float side = (k % 2) ? 1.0f : -1.0f;               /* -1: the Earth-facing side */
+            V3 off = v3s(v3s(v3k(e, side * MF_RM * 0.95f), MF_T1, frand(-0.08f, 0.08f)), MF_H, frand(-0.08f, 0.08f));
+            V3 dv = v3k(e, side * frand(0.0008f, 0.0022f) * (1 + u));   /* tidal: near side inwards, far side out */
+            gp_new(j, (rnd() % 3) ? GQ_DUST : GQ_ROCK, v3s(c, off, 1), v3s(mv, dv, 1), 150, frand(0.005f, 0.014f));
+        }
+    }
+    if (t >= MF_HIT && t < MF_HIT + 50) {
+        int k = t - MF_HIT, n = k < 14 ? 8 : 3;
+        for (int i = 0; i < n; i++) {                         /* molten ejecta: a curtain, mostly downrange */
+            V3 d = mf_cone(1.05f, 0.55f);
+            float sp = (rnd() % 7 == 0) ? frand(0.036f, 0.047f) : frand(0.010f, 0.031f);   /* a few escape */
+            V3 base = v3n(v3s(v3s(MF_N, MF_T1, frand(-0.12f, 0.12f)), MF_T2, frand(-0.12f, 0.12f)));
+            gp_new(j, GQ_EJECTA, v3k(base, 1.01f), v3k(d, sp), 170 + (int)(rnd() % 90), frand(0.007f, 0.02f));
+        }
+        if (k > 6 && k % 2 == 0) {                            /* the Moon comes apart */
+            V3 mv, c = mf_moon_c(t, &mv);
+            V3 d = mf_cone(1.5f, 0.3f);
+            float sp = frand(0.006f, 0.02f);
+            gp_new(j, GQ_ROCK, v3s(c, d, MF_RM * 0.85f), v3s(v3k(mv, 0.4f), d, sp), 170, frand(0.016f, 0.036f));
+        }
+    }
+    if (t >= MF_FALL - 20 && t < MF_LAND) gp_step(j, t);
+    if (t == MF_FLASH) camera_shake(3);
+    /* back on the ground: the world has burned, and the blow lands */
+    if (t == MF_LAND && !j->hit_done) {
         j->hit_done = 1;
         target_frozen(s, j, false);
+        lava_activate(s, j);
         CInstance *c = j->tgt_id >= 0 ? YYGML_FindInstance(j->tgt_id) : 0;
-        float cx = c ? (float)sget(c, &g_VAR_x) : tx, cy = c ? (float)sget(c, &g_VAR_y) : ty;
-        Hit h = { my_dmg(s) * 10.0, j->dir * 9.0, -9.0, 40, 6, 2.0, 2.0, SPR_MASK64, 1, 1, 0, 1, SPR_HIT_3, C_CYAN, 2 };
+        float cx = c ? (float)sget(c, &g_VAR_x) : j->tgt_x, cy = c ? (float)sget(c, &g_VAR_y) : j->tgt_y;
+        Hit h = { my_dmg(s) * 10.0, j->dir * 7.0, -12.0, 40, 6, 2.2, 2.2, SPR_MASK64, 1, 1, 0, 1, SPR_HIT_3, C_FIRE, 2 };
         spawn_hit(s, cx, cy - 28, &h);
-        fx_kind(j, GF_SHATTER, cx, cy - 30, 1.8f, j->dir);
-        fx_kind(j, GF_GLITCH, cx, cy - 34, 2.2f, j->dir);
-        fx_at(j, GR_RING, cx, cy - 1, 1.2f, 1.2f, 0, 2, 1, C_CYAN);
-        fx_at(j, GR_RING, cx, cy - 1, 2.0f, 2.0f, 0, 3, 1, C_MAG);
-        fx_at(j, GR_RING, cx, cy - 1, 2.8f, 2.8f, 0, 4, 1, RGB(120, 190, 235));
-        fx_kind(j, GF_PILLAR, cx, cy, 1.1f, j->dir);
-        fx_at(j, GR_BEAM, cx, cy + 2, 2.6f, 4.0f, 0, 3, 1, C_WHITE);                 /* a pillar of light */
-        fx_at(j, GR_STAR, cx, cy - 30, 3.0f, 3.0f, 0, 2, 1, C_WHITE);
-        burst(j, PK_PIXEL, cx, cy - 30, 70, 7.5f, 46, 2.8f, C_CYAN);
-        burst(j, PK_PIXEL, cx, cy - 30, 30, 6.0f, 40, 2.4f, C_MAG);
-        burst(j, PK_SPARK, cx, cy - 30, 28, 9.0f, 16, 2.0f, C_WHITE);
-        burst(j, PK_EMBER, cx, cy - 10, 20, 4.0f, 50, 2.8f, C_FIRE);
-        burst(j, PK_FROST, cx, cy - 10, 16, 3.0f, 50, 3.2f, C_ICE);
-        for (int k = 0; k < 6; k++) {                       /* lightning strikes all round, ice spikes in a ring */
-            float ox = (k - 2.5f) * 26;
-            bolt(j, cx + ox + frand(-10, 10), cy - 240, cx + ox, cy - 4, 12 + k, 4.0f, k % 2 ? C_VOLT : C_CYAN);
-            spawn_spike(j, cx + ox * 1.2f, cy, 0.9f + 0.1f * (k % 3), -2.0f, 0.05f, j->dir);
-        }
-        for (int k = 0; k < 6; k++) part(j, PK_SMOKE, cx + frand(-20, 20), cy - frand(0, 20), frand(-0.8f, 0.8f), -frand(0.4f, 1.2f), 70, 12, RGB(70, 70, 78));
-        mark(j, 0, cx, cy, 70, 240); mark(j, 1, cx, cy, 90, 240);
+        fx_kind(j, GF_FIREBURST, cx, cy - 20, 2.2f, j->dir);
+        fx_at(j, GR_RING, cx, cy - 1, 1.4f, 1.4f, 0, 2, 1, C_FIRE);
+        fx_at(j, GR_RING, cx, cy - 1, 2.6f, 2.6f, 0, 3, 1, RGB(255, 190, 90));
+        fx_at(j, GR_STAR, cx, cy - 30, 2.6f, 2.6f, 0, 2, 1, C_WHITE);
+        burst(j, PK_EMBER, cx, cy - 20, 40, 6.0f, 60, 3.0f, C_FIRE);
+        burst(j, PK_SHARD, cx, cy - 10, 26, 7.0f, 50, 3.0f, RGB(120, 110, 100));
+        burst(j, PK_SPARK, cx, cy - 20, 24, 9.0f, 16, 2.0f, RGB(255, 230, 170));
+        for (int k = 0; k < 10; k++) part(j, PK_SMOKE, cx + frand(-40, 40), cy - frand(0, 30), frand(-1.2f, 1.2f), -frand(0.4f, 1.4f), 90, 14, RGB(60, 48, 42));
+        mark(j, 0, cx, cy, 110, 400);
         camera_shake(3);
-        play(s, SND_WINLOSE_IMPACT, 1.0); play(s, SND_STRONG2, 0.7); play(s, SND_EXPLOSION_MEGA, 0.9);
-        play_c(s, GS_CRASH, 1.0);
-        j->glitch_t = 18;
+        play(s, SND_WINLOSE_IMPACT, 0.9); play(s, SND_STRONG2, 0.6); play(s, SND_EXPLOSION_MEGA, 0.75);
+        play_c(s, GS_CRASH, 0.7);
     }
-    if (t > SPC_SLAM && t < SPC_SLAM + 30 && t % 3 == 0)     /* the crater keeps smoking and sparking */
-        part(j, PK_SMOKE, tx + frand(-24, 24), ty - frand(0, 10), frand(-0.5f, 0.5f), -1.0f, 60, 10, RGB(70, 70, 78));
+    if (t > MF_LAND && t < MF_LAND + 64 && t % 5 == 0) {      /* the Moon's fragments still raining down, burning */
+        float mx2 = j->tgt_x + frand(-260, 260), my2 = y - frand(180, 240), sp = frand(5, 8), ang = frand(1.25f, 1.6f);
+        for (int k = 0; k < 6; k++)
+            part(j, PK_STREAK, mx2 + cosf_(ang) * k * 6, my2 + sinf_(ang) * k * 6, cosf_(ang) * sp, sinf_(ang) * sp, 34, 2.2f, k ? C_FIRE : RGB(255, 235, 190));
+        if (t % 10 == 0) {
+            float gx = j->tgt_x + frand(-200, 200);
+            fx_kind(j, GF_FIREBURST, gx, y - 10, 0.9f, j->dir);
+            burst(j, PK_EMBER, gx, y - 6, 10, 3.0f, 40, 2.4f, C_FIRE);
+        }
+    }
     if (t >= SPC_DUR) {
         special_end(s, j);
         bset(s, &g_VAR_image_speed, 0.25);
         bset_i(s, &g_VAR_alarm, 2, 1);
+    }
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* MOONFALL, drawn                                                                              */
+/* ------------------------------------------------------------------------------------------ */
+static int bb_col(float T) {                         /* blackbody: dull red -> orange -> yellow -> white-hot */
+    static const float st[7] = { 0.0f, 0.25f, 0.55f, 0.9f, 1.3f, 1.8f, 2.4f };
+    static const unsigned char c[7][3] = { { 0, 0, 0 }, { 110, 10, 0 }, { 200, 45, 5 }, { 255, 110, 20 },
+                                           { 255, 175, 70 }, { 255, 225, 150 }, { 255, 250, 235 } };
+    if (!(T > 0)) return 0;
+    if (T >= st[6]) return RGB(c[6][0], c[6][1], c[6][2]);
+    int i = 0;
+    while (i < 5 && T >= st[i + 1]) i++;
+    float u = (T - st[i]) / (st[i + 1] - st[i]);
+    int r = (int)(c[i][0] + (c[i + 1][0] - c[i][0]) * u), g = (int)(c[i][1] + (c[i + 1][1] - c[i][1]) * u);
+    int b = (int)(c[i][2] + (c[i + 1][2] - c[i][2]) * u);
+    return RGB(r, g, b);
+}
+static void rect(float x0, float y0, float x1, float y1, int col, float a) {
+    if (a <= 0.003f) return;
+    YYGML_draw_set_colour(col);
+    YYGML_draw_set_alpha(a > 1 ? 1 : a);
+    YYGML_draw_rectangle(x0, y0, x1, y1, false);
+}
+static void stretched(CInstance *s, int a, float img, float x, float y, float w, float h, int col, float alpha) {
+    if (a < 0 || a >= GR_COUNT || g_grey_spr[a] < 0 || alpha <= 0.003f) return;
+    if (!finite_(x) || !finite_(y) || !finite_(w) || !finite_(h)) return;
+    RValue r = rv_undef();
+    RValue v[8] = { rv_real(g_grey_spr[a]), rv_real(img), rv_real(x), rv_real(y), rv_real(w), rv_real(h), rv_real(col),
+                    rv_real(alpha > 1 ? 1 : alpha) };
+    F_DrawSpriteStretchedExt(&r, s, s, 8, v);
+    rv_free(&r);
+}
+/* a soft streak: the glow sprite stretched along a motion (a camera shutter's blur) */
+static void glow_streak(CInstance *s, float x0, float y0, float x1, float y1, float w, int col, float a) {
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf_(dx * dx + dy * dy);
+    if (len < w) { spr(s, GR_GLOW, 0, x1, y1, w / 32.0f, w / 32.0f, 0, col, a); return; }
+    spr(s, GR_GLOW, 0, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, (len + w) / 32.0f, w / 32.0f, -atan2f_(dy, dx) * 57.29578f, col, a);
+}
+
+/* the space camera: on the +z axis looking at the Earth (so the pre-lit sprites stay true), dollying out.
+   Keyframed by what the eye sees: the Earth's apparent radius R (GUI heights, log-interpolated = a steady
+   zoom), where its centre sits across the screen and how high its top edge is. Cubic Hermite through the
+   keys with time-aware tangents: the camera never stops dead between shots. */
+typedef struct { float F, D, ox, oy, R; } MCam;
+typedef struct { short t; float lnR, cx, ytop; } MKey;      /* lnR: log of the apparent radius (GUI heights) */
+static const MKey MF_KEYS[] = {
+    { MF_ASC + 8, 1.386294f, 0.50f, 1.10f },  /* R 4.0: the limb, still below the frame as we climb */
+    { MF_SPACE, 1.163151f, 0.50f, 0.70f },    /* R 3.2: clear of the atmosphere: the horizon */
+    { 136, 0.048790f, 0.47f, 0.52f },         /* R 1.05: pulling back: the curve of the planet */
+    { MF_FALL, -1.203973f, 0.40f, 0.32f },    /* R 0.3: the whole system: the Moon swinging in from the right */
+    { MF_HIT, -0.776529f, 0.34f, 0.24f },     /* R 0.46: pushing in for contact */
+    { MF_AFTER, -1.021651f, 0.40f, 0.26f },   /* R 0.36 */
+    { MF_FLASH, -1.309333f, 0.46f, 0.29f },   /* R 0.27: back off: the debris disc */
+};
+#define MF_NKEY ((int)(sizeof(MF_KEYS) / sizeof(MF_KEYS[0])))
+static float mf_key(int i, int ch) {
+    const MKey *k = &MF_KEYS[i];
+    return ch == 0 ? k->lnR : ch == 1 ? k->cx : k->ytop;
+}
+static float mf_channel(float t, int ch) {
+    if (t <= MF_KEYS[0].t) return mf_key(0, ch);
+    if (t >= MF_KEYS[MF_NKEY - 1].t) return mf_key(MF_NKEY - 1, ch);
+    int i = 0;
+    while (i < MF_NKEY - 2 && t > MF_KEYS[i + 1].t) i++;
+    float t0 = MF_KEYS[i].t, t1 = MF_KEYS[i + 1].t, h = t1 - t0, u = (t - t0) / h;
+    float p0 = mf_key(i, ch), p1 = mf_key(i + 1, ch);
+    float m0 = i > 0 ? (p1 - mf_key(i - 1, ch)) / (t1 - MF_KEYS[i - 1].t) : 0;
+    float m1 = i + 2 < MF_NKEY ? (mf_key(i + 2, ch) - p0) / (MF_KEYS[i + 2].t - t0) : 0;
+    float u2 = u * u, u3 = u2 * u;
+    return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * h * m0 + (-2 * u3 + 3 * u2) * p1 + (u3 - u2) * h * m1;
+}
+static void mf_cam(float t, float gw, float gh, MCam *c) {
+    float R = expf_(mf_channel(t, 0));
+    if (R < 0.05f) R = 0.05f;
+    c->F = MF_F * gh;
+    c->R = R * gh;
+    c->D = sqrtf_(1 + (MF_F / R) * (MF_F / R));              /* the distance at which the Earth looks that big */
+    c->ox = mf_channel(t, 1) * gw;
+    c->oy = (mf_channel(t, 2) + R) * gh;
+}
+static int mf_proj(const MCam *c, V3 p, float *sx, float *sy, float *k) {
+    float d = c->D - p.z;
+    if (d < 0.08f) return 0;
+    *k = c->F / d; *sx = c->ox + p.x * *k; *sy = c->oy + p.y * *k;
+    return finite_(*sx) && finite_(*sy);
+}
+static int mf_hidden(const MCam *c, V3 p) {          /* behind the Earth? (the ray from the camera meets it first) */
+    V3 d = v3(p.x, p.y, p.z - c->D);
+    float a = v3dot(d, d), b = 2 * c->D * d.z, cc = c->D * c->D - 1;
+    float disc = b * b - 4 * a * cc;
+    if (disc <= 0 || a < 1e-9f) return 0;
+    float t1 = (-b - sqrtf_(disc)) / (2 * a);
+    return t1 > 0 && t1 < 0.999f;
+}
+
+/* the planet: the day side until contact, then the melt sweeping over it (two frames cross-faded) */
+static void mf_draw_earth(CInstance *s, const MCam *c, int t, float alpha) {
+    float sc = c->R / 236.0f;                                 /* EARTH_R in the 512 px renders */
+    float top_a = clampf((c->R / c->F * MF_F - 1.35f) / 0.4f, 0, 1);   /* the detailed horizon crop up close */
+    if (top_a < 1) {
+        float th = mf_melt(t);
+        if (th <= 0) spr(s, GR_EARTH, 0, c->ox, c->oy, sc, sc, 0, C_WHITE, alpha);
+        else {
+            int k = 0;
+            while (k < MELT_N - 1 && th >= MELT_TH[k + 1]) k++;
+            if (th < MELT_TH[0]) {
+                spr(s, GR_EARTH, 0, c->ox, c->oy, sc, sc, 0, C_WHITE, alpha);
+                spr(s, GR_EARTH_MELT, 0, c->ox, c->oy, sc, sc, 0, C_WHITE, alpha * th / MELT_TH[0]);
+            } else {
+                spr(s, GR_EARTH_MELT, (float)k, c->ox, c->oy, sc, sc, 0, C_WHITE, alpha);
+                if (k < MELT_N - 1)
+                    spr(s, GR_EARTH_MELT, (float)(k + 1), c->ox, c->oy, sc, sc, 0, C_WHITE,
+                        alpha * (th - MELT_TH[k]) / (MELT_TH[k + 1] - MELT_TH[k]));
+            }
+        }
+    }
+    if (top_a > 0) {
+        float k = c->R / 1024.0f;                             /* TOP_R */
+        spr(s, GR_EARTH_TOP, 0, c->ox, c->oy, k, k, 0, C_WHITE, alpha * top_a);
+    }
+}
+/* the Moon: tidally stretched toward the Earth as it falls inside the Roche limit, cracking, then
+   flattening and sinking as it ploughs in, its underside glowing */
+static void mf_draw_moon(CInstance *s, const MCam *c, int t) {
+    if (t < MF_MOON || t > MF_HIT + 90) return;
+    V3 p = mf_moon_c(t, 0);
+    float sx, sy, k;
+    if (!mf_proj(c, p, &sx, &sy, &k)) return;
+    float rpx = MF_RM * k;
+    if (sx < -rpx * 2 || sx > c->ox * 4 + 4000 || rpx < 0.5f) return;
+    float r = v3len(p), pen = mf_pen(t), pu = pen / 0.52f;
+    float tide = 1 + 0.25f * (1.4f / r) * (1.4f / r) * (1.4f / r);   /* tidal elongation ~ 1/r^3 */
+    if (tide > 1.4f) tide = 1.4f;
+    float a = tide, b = 1 / sqrtf_(tide);                    /* a prolate spheroid, volume kept */
+    V3 e = v3n(p);
+    float sin2 = 1 - e.z * e.z;                               /* its axis, foreshortened */
+    float along = sqrtf_(a * a * sin2 + b * b * (1 - sin2)), across = b;
+    along *= 1 - 0.55f * pu; across *= 1 + 0.3f * pu;          /* ploughing in: it flattens and spreads */
+    float sc = rpx / 124.0f;                                  /* MOON_R */
+    float al = 1 - ease_io(lin01f(pen, 0.18f, 0.48f));
+    float crack = ease_io(lin01f(2.2f - r, 0, 0.6f));         /* breaking up deep inside the Roche limit */
+    const int lunar = RGB(178, 172, 166);                     /* the Moon is darker than the Earth */
+    float ex = -cosf_(MF_ROT * DEG), ey = sinf_(MF_ROT * DEG);   /* screen direction towards the Earth */
+    float cx = sx + ex * rpx * (1 - along), cy = sy + ey * rpx * (1 - along);   /* the far side stays put */
+    spr(s, GR_MOON_BIG, 0, cx, cy, sc * along, sc * across, MF_ROT, lunar, al * (1 - crack));
+    if (crack > 0) spr(s, GR_MOON_BIG, 1, cx, cy, sc * along, sc * across, MF_ROT, lunar, al);
+    if (t >= MF_HIT - 3) {                                    /* lit from below by the impact */
+        float hot = clampf(1 - (float)(t - MF_HIT) / 80.0f, 0, 1) * (t < MF_HIT ? 0.4f : 1);
+        blend(s, 1);
+        spr(s, GR_GLOW, 0, cx + ex * rpx * 0.75f, cy + ey * rpx * 0.75f, rpx * 2.6f / 32.0f, rpx * 1.6f / 32.0f, MF_ROT,
+            RGB(255, 150, 60), 0.85f * hot * (0.4f + 0.6f * al));
+        blend(s, 0);
+    }
+}
+static void mf_draw_ring_on_globe(CInstance *s, const MCam *c, float th, float w, int col, float a) {
+    if (th <= 0.01f || th >= 3.1f || a <= 0.01f) return;
+    float ct = cosf_(th), st = sinf_(th), px = 0, py = 0;
+    int have = 0;
+    for (int i = 0; i <= 64; i++) {
+        float ph = i * (6.2832f / 64);
+        V3 q = v3s(v3k(MF_N, ct), v3s(v3k(MF_T1, cosf_(ph)), MF_T2, sinf_(ph)), st);
+        float x = 0, y = 0, k;
+        int vis = q.z > 1 / c->D + 0.02f && mf_proj(c, q, &x, &y, &k);   /* on the near side */
+        if (vis && have) {
+            float lim = q.z < 0.3f ? q.z / 0.3f : 1;               /* fading towards the limb */
+            seg(s, px, py, x, y, w, col, a * lim);
+        }
+        px = x; py = y; have = vis;
+    }
+}
+/* the debris disc: what the impact threw into orbit, spreading round the planet from the impact side and
+   shearing out (inner orbits faster: Kepler) */
+static void mf_draw_disc(CInstance *s, const MCam *c, int t, int front) {
+    if (t < MF_HIT + 20) return;
+    float age = (float)(t - MF_HIT - 20);
+    float spread = clampf(age / 60.0f, 0, 1) * 6.2832f;
+    float fade = ease_io(age / 36.0f);
+    for (int pass = 0; pass < 2; pass++) {                   /* lit dust, then the clumps still glowing */
+        blend(s, pass);
+        for (int i = 0; i < 300; i++) {
+            unsigned hsh = (unsigned)i * 2654435761u;
+            int hot = (hsh >> 7) % 3 == 0;                     /* still glowing from the impact */
+            if (hot != pass) continue;
+            float f0 = (float)(hsh & 1023) / 1023.0f, f1 = (float)((hsh >> 10) & 1023) / 1023.0f, f2 = (float)((hsh >> 20) & 1023) / 1023.0f;
+            float r = 1.7f + 0.55f * f0 * f0;
+            float ph0 = f1 * 6.2832f;
+            if (ph0 > spread) continue;
+            float w = sqrtf_(MF_GM / (r * r * r));             /* Kepler angular speed (rad/frame) */
+            float ph = ph0 + w * age;
+            V3 q = v3s(v3s(v3k(MF_N, r * cosf_(ph)), MF_TO, r * sinf_(ph)), MF_H, (f2 - 0.5f) * 0.05f);
+            if ((q.z > 0) != front) continue;
+            float x, y, k;
+            if (mf_hidden(c, q) || !mf_proj(c, q, &x, &y, &k)) continue;
+            float sz = (0.016f + 0.026f * f2) * k;
+            if (sz < 1.5f) sz = 1.5f;
+            if (hot) spr(s, GR_GLOW, 0, x, y, sz * 2.6f / 32.0f, sz * 2.6f / 32.0f, 0, bb_col(1.25f - age / 220.0f), 0.8f * fade);
+            else spr(s, GR_GLOW, 0, x, y, sz * 1.8f / 32.0f, sz * 1.8f / 32.0f, 0, RGB(190, 160, 130), 0.7f * fade);
+        }
+    }
+    blend(s, 0);
+}
+static void mf_draw_gp(CInstance *s, Grey *j, const MCam *c, int t) {
+    for (int pass = 0; pass < 3; pass++) {                 /* dust, rocks (lit), then everything glowing */
+        blend(s, pass == 2);
+        for (int i = 0; i < N_GP; i++) {
+            GPt *q = &j->gp[i];
+            if (!q->on) continue;
+            V3 p = v3(q->x, q->y, q->z);
+            if (mf_hidden(c, p)) continue;
+            float x, y, k;
+            if (!mf_proj(c, p, &x, &y, &k)) continue;
+            float sz = q->size * k, life = (float)q->t / q->life;
+            if (pass == 0 && q->kind == GQ_DUST) {
+                if (sz < 1.0f) sz = 1.0f;
+                spr(s, GR_GLOW, 0, x, y, sz * 2 / 32.0f, sz * 2 / 32.0f, 0, RGB(150, 138, 126), 0.5f * (1 - life));
+            } else if (pass == 1 && q->kind == GQ_ROCK) {
+                float rs = sz * 2 / 20.0f;
+                if (rs < 0.06f) rs = 0.06f;
+                spr(s, GR_ROCKS, (float)q->frame, x, y, rs, rs, 0, C_WHITE, 1 - life * life);
+            } else if (pass == 2 && (q->kind == GQ_EJECTA || q->kind == GQ_SPLASH || (q->kind == GQ_ROCK && q->t < 60 && t > MF_HIT))) {
+                if (q->kind == GQ_SPLASH) {
+                    float g = sz * (0.6f + 2.4f * life);
+                    spr(s, GR_GLOW, 0, x, y, g / 32.0f, g / 32.0f, 0, bb_col(2.0f - 1.6f * life), 0.9f * (1 - life));
+                } else if (q->kind == GQ_ROCK) {
+                    spr(s, GR_GLOW, 0, x, y, sz * 3 / 32.0f, sz * 3 / 32.0f, 0, RGB(255, 110, 30), 0.5f * (1 - q->t / 60.0f));
+                } else {
+                    float T = 1.95f * expf_(-q->t / 70.0f) + 0.25f;   /* cooling as it flies */
+                    if (sz < 1.2f) sz = 1.2f;
+                    float x0, y0, k0;                                 /* where it was 2 frames ago: the blur */
+                    V3 pp = v3(q->x - q->vx * 2.5f, q->y - q->vy * 2.5f, q->z - q->vz * 2.5f);
+                    if (!mf_proj(c, pp, &x0, &y0, &k0)) { x0 = x; y0 = y; }
+                    glow_streak(s, x0, y0, x, y, sz * 2.6f, bb_col(T), clampf(T * 0.6f, 0.15f, 0.95f) * (1 - life * life));
+                }
+            }
+        }
+    }
+    blend(s, 0);
+}
+
+/* the whole space shot, on the GUI layer */
+static void mf_draw_space(CInstance *s, Grey *j, float gw, float gh) {
+    int t = j->sp_t;
+    MCam c;
+    float shake = t >= MF_HIT && t < MF_HIT + 40 ? gh * 0.008f * (1 - (t - MF_HIT) / 40.0f) : 0;
+    mf_cam((float)t, gw, gh, &c);
+    if (shake > 0) { c.ox += frand(-shake, shake); c.oy += frand(-shake, shake); }
+    float cover = ease_io(lin01(t, MF_ASC, MF_ASC + 12));      /* the world drops away below us */
+    float alt = lin01(t, MF_ASC, MF_SPACE + 4);
+    /* the sky as we climb: blue, then indigo, then black - brightest towards the horizon below */
+    for (int b = 0; b < 32; b++) {
+        float f0 = b / 32.0f, f1 = (b + 1) / 32.0f, f = (f0 + f1) * 0.5f;
+        float dark = ease_io(clampf(alt * 1.6f - f * f * 0.7f, 0, 1));
+        int r = (int)((105 + 80 * f) * (1 - dark) + 2 * dark), g = (int)((150 + 60 * f) * (1 - dark) + 3 * dark);
+        int bl = (int)((225 + 25 * f) * (1 - dark) + 8 * dark);
+        rect(0, gh * f0, gw, gh * f1 + 1, RGB(r, g, bl), cover);
+    }
+    stretched(s, GR_STARS, 0, 0, 0, gw, gh, C_WHITE, cover * ease_io(lin01f(alt, 0.45f, 1.0f)));
+    if (alt < 1 && t < MF_SPACE) {                           /* the air rushing past: cloud, then thin haze */
+        blend(s, 1);
+        for (int i = 0; i < 16; i++) {
+            float px = (float)((i * 389 + 61) % 1000) / 1000.0f * gw;
+            float py = (float)(((t - MF_ASC) * (24 + (i % 5) * 9) + i * 211) % (int)(gh * 1.6f)) - gh * 0.3f;
+            seg(s, px, py, px, py + gh * 0.22f, 1.4f, C_WHITE, 0.22f * (1 - alt) * cover);
+        }
+        blend(s, 0);
+        float deck = 1 - fabsf_((float)(t - MF_ASC - 6) / 4.0f);      /* through the cloud deck */
+        if (deck > 0) rect(0, 0, gw, gh, RGB(238, 242, 248), 0.85f * deck * deck);
+    }
+    if (t < MF_ASC + 8) return;
+    /* the bodies */
+    mf_draw_disc(s, &c, t, 0);                                /* the far half of the debris disc */
+    mf_draw_earth(s, &c, t, 1);
+    if (t >= MF_HIT) {                                        /* the hot side lights the atmosphere orange */
+        float th = mf_melt(t), hot = clampf(th / 2.5f, 0, 1);
+        blend(s, 1);
+        spr(s, GR_GLOW, 0, c.ox, c.oy, c.R * 2.9f / 32.0f, c.R * 2.9f / 32.0f, 0, RGB(255, 110, 30), 0.22f * hot);
+        blend(s, 0);
+    }
+    float th = mf_melt(t);
+    blend(s, 1);                                              /* the shock front, and the air-blast ahead of it */
+    if (th > 0) {
+        mf_draw_ring_on_globe(s, &c, th, gh * 0.0015f + c.R * 0.004f, RGB(255, 215, 150), 0.45f * (1 - th / 3.6f));
+        if (th > 0.2f && th < 2.4f)                           /* the air blast, racing ahead through the clouds */
+            mf_draw_ring_on_globe(s, &c, th * 1.12f + 0.08f, gh * 0.0015f + c.R * 0.003f, RGB(205, 225, 255), 0.16f * (1 - th / 2.4f));
+    }
+    blend(s, 0);
+    mf_draw_moon(s, &c, t);
+    mf_draw_gp(s, j, &c, t);
+    /* contact: the jetting flash - vaporised rock squirting out of the contact ring at many km/s - then the
+       plume of rock vapour rising and cooling, white-hot to orange to smoke */
+    if (t >= MF_HIT - 1) {
+        int k = t - MF_HIT;
+        float x, y, kk;
+        if (mf_proj(&c, MF_N, &x, &y, &kk)) {
+            float E = kk;                                         /* pixels per Earth radius at the impact */
+            blend(s, 1);
+            if (k < 10) {
+                float u = k / 10.0f, f2 = (1 - u) * (1 - u);
+                spr(s, GR_GLOW, 0, x, y, E * (0.35f + 0.9f * u) / 32.0f, E * (0.35f + 0.9f * u) / 32.0f, 0, RGB(255, 252, 245), f2);
+            }
+            float heat = clampf(1 - k / 110.0f, 0, 1);
+            spr(s, GR_GLOW, 0, x, y, E * 0.75f / 32.0f, E * 0.75f / 32.0f, 0, bb_col(0.8f + 1.6f * heat), 0.65f * heat);
+            blend(s, 0);
+            if (k >= 1 && k < 120) {
+                float u = (k - 1) / 84.0f;
+                int fr = (int)(u * 9.99f); if (fr > 9) fr = 9;
+                float sc = E * 1.25f / 170.0f;                    /* the vapour plume rises ~1.25 Earth radii */
+                float fade = k < 88 ? 1 : 1 - (k - 88) / 32.0f;
+                float fore = sqrtf_(1 - MF_N.z * MF_N.z);         /* a dome along MF_N, seen at an angle */
+                spr(s, GR_PLUME, (float)fr, x, y, sc, sc * fore, MF_ROT - 90, C_WHITE, fade);
+                blend(s, 1);
+                spr(s, GR_PLUME, (float)fr, x, y, sc, sc * fore, MF_ROT - 90, RGB(255, 150, 70), 0.18f * fade * heat);
+                blend(s, 0);
+            }
+        }
+    }
+    mf_draw_disc(s, &c, t, 1);                                /* the near half */
+}
+/* on the ground, before the climb: the sky tears and the Moon is in it, huge (world space, in Draw) */
+static void mf_draw_sky(CInstance *s, Grey *j) {
+    int t = j->sp_t;
+    if (t < MF_RIFT || t >= MF_ASC + 14) return;
+    float mx, my, mr;
+    mf_sky_moon_at(s, &mx, &my, &mr);
+    float sc = mr / 124.0f;
+    if (t < MF_MOON + 6) {                                    /* the rift: a glitching tear in the sky */
+        float u = lin01(t, MF_RIFT, MF_MOON), h = mr * (0.25f + 1.3f * u);
+        blend(s, 1);
+        for (int k = 0; k < 7; k++) {
+            float yy = my - h + (2 * h) * (k + 0.5f) / 7.0f, w = mr * (0.05f + 0.25f * u) * (1 - fabsf_((yy - my) / h));
+            spr(s, GR_SHAPE, 0, mx + frand(-3, 3), yy, (w + 2) / 32.0f, (2 * h / 7.0f) / 32.0f, 0, k % 2 ? C_CYAN : C_MAG, 0.5f);
+        }
+        spr(s, GR_GLOW, 0, mx, my, mr * 0.9f * u / 32.0f, h / 32.0f, 0, RGB(180, 220, 255), 0.6f * u);
+        blend(s, 0);
+        for (int k = 0; k < 3; k++)
+            spr(s, GR_GLITCH, (float)((t + k * 3) % 8), mx + frand(-mr * 0.2f, mr * 0.2f), my + frand(-h, h), 0.6f + u, 0.6f + u, 0, C_WHITE, 0.9f);
+    }
+    if (t < MF_MOON) return;
+    int age = t - MF_MOON;
+    /* seen through the daytime sky: the air in front of it scatters blue light over it, so it is never
+       quite opaque - its dark limb shows the sky (alpha), and it sits a little bluer than in space */
+    float al = 0.9f;
+    if (age < 14) {                                           /* glitching in */
+        float u = age / 14.0f;
+        float jx = (age % 3 == 0) ? frand(-mr * 0.1f, mr * 0.1f) : 0;
+        blend(s, 1);
+        spr(s, GR_MOON_BIG, 0, mx - mr * 0.12f * (1 - u), my, sc, sc, MF_ROT, C_CYAN, 0.7f * (1 - u));
+        spr(s, GR_MOON_BIG, 0, mx + mr * 0.12f * (1 - u), my, sc, sc, MF_ROT, C_MAG, 0.7f * (1 - u));
+        blend(s, 0);
+        spr(s, GR_MOON_BIG, 0, mx + jx, my, sc, sc, MF_ROT, RGB(225, 235, 255), al * (age % 4 == 1 ? 0.3f : u));
+        for (int k = 0; k < 2; k++)
+            spr(s, GR_GLITCH, (float)((age + k * 4) % 8), mx + frand(-mr, mr), my + frand(-mr, mr), 1.4f, 1.4f, 0, C_WHITE, 1 - u);
+    } else {
+        float fade = 1 - lin01(t, MF_ASC + 4, MF_ASC + 14);
+        spr(s, GR_MOON_BIG, 0, mx, my, sc, sc, MF_ROT, RGB(225, 235, 255), al * fade);
+    }
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* the lava world: what is left after MOONFALL. Like Scyther's void: the stage's own backdrop is hidden    */
+/* (layers behind the fighters without instances: backgrounds, tiles; scenery instances made invisible)  */
+/* and Draw Begin paints a burning sky (the Moon's debris ring arcing over it), two ranges of volcanoes   */
+/* with lava rivers, and a crust of cooled basalt with glowing cracks on every solid you can stand on.   */
+/* ------------------------------------------------------------------------------------------ */
+static int inst_count_all(CInstance *s, int obj) {
+    RValue n = rv_undef(); RValue a = rv_real(obj);
+    F_InstanceNumber(&n, s, s, 1, &a);
+    int c = (int)rv_num(&n); rv_free(&n);
+    return c < 0 ? 0 : (c > 400 ? 400 : c);
+}
+static double arr_len(CInstance *s, RValue *arr) {
+    RValue r = rv_undef();
+    RValue *args[1] = { arr };
+    YYGML_CallLegacyFunction(s, s, &r, 1, g_FUNC_array_length_1d.id, args);
+    double d = rv_num(&r);
+    rv_free(&r);
+    return d;
+}
+static double fighters_depth(CInstance *s) {              /* the deepest fighter: deeper than this is scenery */
+    double dmax = sget(s, &g_VAR_depth);
+    if (dmax < -1000) dmax = 0;                              /* (during the special we sit at -15000) */
+    int cnt = inst_count(s, OBJ_PARENT_CHARACTER), id;
+    for (int i = 0; i < cnt && i < 16; i++) {
+        CInstance *c = inst_nth(s, OBJ_PARENT_CHARACTER, i, &id);
+        if (!c || c == s) continue;
+        double d = sget(c, &g_VAR_depth);
+        if (d > dmax) dmax = d;
+    }
+    return dmax;
+}
+static void hide_scenery(CInstance *s, double dmax) {
+    int id;
+    for (int k = 0; k < N_STAGE_DECOR; k++) {
+        int obj = k_stage_decor[k];
+        int n = inst_count_all(s, obj);
+        for (int i = 0; i < n; i++) {
+            CInstance *c = inst_nth(s, obj, i, &id);
+            if (c && sget(c, &g_VAR_depth) > dmax) bset(c, &g_VAR_visible, 0);
+        }
+    }
+}
+static void hide_layers(CInstance *s, double dmax) {
+    RValue *xx = var_slot_w(s, g_VAR_xx.id);
+    rv_free(xx);
+    RValue none = rv_undef();
+    F_LayerGetAll(xx, s, s, 0, &none);
+    if ((xx->kind & KIND_MASK) != VALUE_ARRAY) { rv_free(xx); *xx = rv_real(0); return; }
+    int n = (int)arr_len(s, xx);
+    RValue self = rv_inst(s);
+    for (int i = 0; i < n && i < 64; i++) {
+        RValue layer = rv_undef();
+        YYGML_Variable_GetValue(&self, g_VAR_xx.id, i, &layer, false, false);
+        if (fcall1(s, F_LayerGetDepth, layer) <= dmax) { rv_free(&layer); continue; }
+        RValue *yy = var_slot_w(s, g_VAR_yy.id);
+        rv_free(yy);
+        F_LayerGetAllElements(yy, s, s, 1, &layer);
+        int has_inst = 0;
+        if ((yy->kind & KIND_MASK) == VALUE_ARRAY) {
+            int m = (int)arr_len(s, yy);
+            for (int k = 0; k < m && k < 512 && !has_inst; k++) {
+                RValue el = rv_undef();
+                YYGML_Variable_GetValue(&self, g_VAR_yy.id, k, &el, false, false);
+                if (fcall1(s, F_LayerGetElementType, el) == 2) has_inst = 1;     /* layerelementtype_instance */
+                rv_free(&el);
+            }
+        }
+        yy = var_slot_w(s, g_VAR_yy.id); rv_free(yy); *yy = rv_real(0);
+        if (!has_inst) {
+            RValue r = rv_undef();
+            RValue a[2] = { layer, rv_bool(false) };
+            F_LayerSetVisible(&r, s, s, 2, a);
+            rv_free(&r);
+        }
+        rv_free(&layer);
+    }
+    xx = var_slot_w(s, g_VAR_xx.id); rv_free(xx); *xx = rv_real(0);
+}
+static void lava_activate(CInstance *s, Grey *j) {
+    if (j->lava_on) return;
+    j->lava_on = 1; j->lava_t = 0; j->lava_gy = sy_(s);
+    double dmax = fighters_depth(s);
+    hide_scenery(s, dmax);
+    if (!j->lava_hidden) { j->lava_hidden = 1; hide_layers(s, dmax); }
+}
+static void spr_part(CInstance *s, int a, float img, float l, float t, float w, float h, float x, float y, int col, float alpha) {
+    if (a < 0 || a >= GR_COUNT || g_grey_spr[a] < 0 || !finite_(x) || !finite_(y)) return;
+    RValue r = rv_undef();
+    RValue v[12] = { rv_real(g_grey_spr[a]), rv_real(img), rv_real(l), rv_real(t), rv_real(w), rv_real(h), rv_real(x), rv_real(y),
+                     rv_real(1), rv_real(1), rv_real(col), rv_real(alpha) };
+    F_DrawSpritePartExt(&r, s, s, 12, v);
+    rv_free(&r);
+}
+/* a 1024 px strip, tiled across the view with parallax p, its base on the line `base` */
+static void lava_range(CInstance *s, int a, float vx, float vw, float base, float p, int col, float alpha) {
+    float off = -vx * p;
+    off -= 1024.0f * (float)(int)(off / 1024.0f);
+    if (off > 0) off -= 1024.0f;
+    for (float x = vx + off; x < vx + vw; x += 1024.0f) spr(s, a, 0, x, base, 1, 1, 0, col, alpha);
+}
+static void lava_floor(CInstance *s, Grey *j, float vx, float vy, float vw, float vh, float fade) {
+    typedef struct { float l, r, t; } Slab;
+    Slab sl[32]; int n = 0, id;
+    int cnt = inst_count_all(s, OBJ_PARENT_SOLID);
+    for (int i = 0; i < cnt && i < 128 && n < 32; i++) {
+        CInstance *c = inst_nth(s, OBJ_PARENT_SOLID, i, &id);
+        if (!c) continue;
+        float l = (float)sget(c, &g_VAR_bbox_left), r = (float)sget(c, &g_VAR_bbox_right) + 1, t = (float)sget(c, &g_VAR_bbox_top);
+        if (!finite_(l) || !finite_(r) || !finite_(t)) continue;
+        if (r - l < 24 || r < vx - 80 || l > vx + vw + 80 || t > vy + vh + 20 || t < vy - 80) continue;
+        int k = n++;
+        while (k > 0 && (sl[k - 1].t > t || (sl[k - 1].t == t && sl[k - 1].l > l))) { sl[k] = sl[k - 1]; k--; }
+        sl[k].l = l; sl[k].r = r; sl[k].t = t;
+    }
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        if (m > 0 && fabsf_(sl[m - 1].t - sl[i].t) < 2 && sl[i].l <= sl[m - 1].r + 2) {
+            if (sl[i].r > sl[m - 1].r) sl[m - 1].r = sl[i].r;
+        } else sl[m++] = sl[i];
+    }
+    if (m == 0 && j->lava_gy > 0) { sl[0].l = vx - 100; sl[0].r = vx + vw + 100; sl[0].t = j->lava_gy; m = 1; }
+    for (int i = 0; i < m; i++) {
+        float x0 = sl[i].l > vx - 80 ? sl[i].l : vx - 80, x1 = sl[i].r < vx + vw + 80 ? sl[i].r : vx + vw + 80, T = sl[i].t;
+        if (x1 - x0 < 1 || x1 - x0 > 4000) continue;
+        float bottom = vy + vh + 4;
+        if (bottom > T + 48) rect(x0, T + 47, x1, bottom, RGB(10, 7, 6), fade);   /* rock, down out of sight */
+        for (float x = x0; x < x1;) {                           /* the crust, tiled along the world */
+            int u = (int)x % 256; if (u < 0) u += 256;
+            float w = 256.0f - u;
+            if (x + w > x1) w = x1 - x;
+            spr_part(s, GR_LAVA_CRUST, 0, (float)u, 0, w, 48, x, T, C_WHITE, fade);
+            x += w;
+        }
+    }
+    YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(1);
+}
+static void draw_lava(CInstance *s, Grey *j) {
+    j->lava_drawn = j->aura_t;
+    g_blend_cur = -1;
+    float vx, vy, vw, vh;
+    mf_view(s, &vx, &vy, &vw, &vh);
+    float fade = j->lava_t < 10 ? 0.4f + 0.06f * j->lava_t : 1.0f;
+    stretched(s, GR_LAVA_SKY, 0, vx, vy, vw, vh, C_WHITE, fade);
+    int lt = j->lava_t % 233;                                 /* volcanic lightning in the ash */
+    if (lt < 4 && j->lava_t > 30) {
+        blend(s, 1);
+        float k = lt == 0 ? 0.5f : (lt == 2 ? 0.35f : 0.15f);
+        rect(vx, vy, vx + vw, vy + vh * 0.55f, RGB(150, 110, 170), k * fade);
+        blend(s, 0);
+    }
+    float gy = j->lava_gy > 0 ? j->lava_gy : vy + vh * 0.8f;
+    lava_range(s, GR_LAVA_FAR, vx, vw, gy - 18, 0.12f, C_WHITE, fade);
+    lava_range(s, GR_LAVA_MID, vx, vw, gy + 6, 0.35f, C_WHITE, fade);
+    float pulse = 0.5f + 0.5f * sinf_(j->lava_t * 0.045f);   /* the rivers' glow breathing */
+    blend(s, 1);
+    lava_range(s, GR_LAVA_MID, vx, vw, gy + 6, 0.35f, RGB(255, 120, 40), 0.18f * pulse * fade);
+    blend(s, 0);
+    lava_floor(s, j, vx, vy, vw, vh, fade);
+    YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(1);
+}
+/* embers rising off the lava, ash drifting down, now and then thunder in the ash clouds */
+static void lava_ambient(CInstance *s, Grey *j) {
+    if (j->lava_t % 233 == 1 && j->lava_t > 30) play(s, SND_THUNDER, 0.3);
+    if (j->lava_t % 3 != 0) return;
+    float vx, vy, vw, vh;
+    mf_view(s, &vx, &vy, &vw, &vh);
+    float gy = j->lava_gy > 0 ? j->lava_gy : vy + vh * 0.8f;
+    Part *q = part(j, PK_EMBER, vx + frand(0, vw), gy + frand(-4, 10), frand(-0.4f, 0.4f), -frand(0.4f, 1.3f),
+                   80 + (int)(rnd() % 60), frand(1.2f, 2.4f), (rnd() & 1) ? C_FIRE : RGB(255, 190, 90));
+    if (q) { q->g = -0.012f; q->drag = 0.99f; }
+    if (j->lava_t % 6 == 0) {
+        Part *a = part(j, PK_PIXEL, vx + frand(0, vw), vy - 4, frand(-0.3f, 0.3f), frand(0.3f, 0.7f), 260, frand(1.0f, 1.8f), RGB(46, 40, 38));
+        if (a) { a->g = 0.002f; a->drag = 1; a->vr = frand(-3, 3); }
     }
 }
 
@@ -1486,10 +2200,15 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
     if (j->glitch_t > 0) j->glitch_t--;
     bool pok = parent_ok(s);
     GPose target; int src;
+    if (j->lava_on) {                                          /* the burning world goes on */
+        j->lava_t++;
+        if (j->lava_t % 30 == 0 && pok) hide_scenery(s, fighters_depth(s));   /* (new scenery) */
+        lava_ambient(s, j);
+    }
 
     if (j->sp_on) {
         if (!pok) { special_end(s, j); base_pose(GPZ_STAND, &target); src = 0; }
-        else { special_step(s, j, &target); src = 200 + (j->sp_t >= SPC_TELE); }
+        else { special_step(s, j, &target); src = 200 + (j->sp_t >= MF_LAND); }
     } else {
         if (pok && j->move == MOVE_NONE && (special_pressed(s) || cpu_wants_special(s))) start_special(s, j);
         if (j->sp_on) { base_pose(GPZ_CHARGE, &target); src = 200; }
@@ -1636,6 +2355,8 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
     float vis = 1;                                           /* materialising / dissolving */
     if (j->entry_t > 0) vis = (1 - (float)j->entry_t / ENTRY_T) * ((g_grey_tick & 2) ? 1.0f : 0.6f);
     if (j->dead_t > 0) { float d = 1 - (float)j->dead_t / DEAD_FADE; vis *= d < 0.35f ? 0.35f : d; }
+    if (j->lava_on && j->lava_drawn != j->aura_t) draw_lava(s, j);   /* Draw Begin didn't run: draw it here */
+    if (j->sp_on) mf_draw_sky(s, j);                         /* MOONFALL: the rift, the Moon in the sky */
     marks_draw(s, j);                                        /* scorch and frost on the floor */
     if (!on_air(s) && !j->sp_on)                            /* a soft shadow */
         spr(s, GR_SHAPE, 1, x, y + 1, 0.55f, 0.1f, 0, 0, 0.25f * al * vis);
@@ -1751,7 +2472,15 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
         spr(s, GR_ERROR, (float)(j->fail_t % 4), x, y - 76, 0.6f, 0.6f, 0, 0x5555FF, j->fail_t / 24.0f);
 }
 
-/* GUI layer: screen tears on his heaviest blows, and the SYSTEM CRASH screen */
+/* Draw Begin: runs before any layer or instance draws, i.e. behind everything */
+void gml_Object_o_grey_Draw_72(CInstance *s, CInstance *o) {
+    (void)o;
+    Grey *j = slot(s, false);
+    if (!j || !j->lava_on) return;
+    draw_lava(s, j);
+}
+
+/* GUI layer: screen tears on his heaviest blows, and the MOONFALL cinematic */
 void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     (void)o;
     Grey *j = slot(s, false);
@@ -1759,90 +2488,37 @@ void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     g_blend_cur = -1;
     float gw = (float)legacy0(s, &g_FUNC_display_get_gui_width);
     float gh = (float)legacy0(s, &g_FUNC_display_get_gui_height);
-    if (gw < 16 || gh < 16) return;
+    if (!(gw >= 16) || !(gh >= 16) || gw > 20000 || gh > 20000) return;
     if (!j->sp_on) {                                         /* a heavy blow: the picture tears for a moment */
         float k = j->scr_t / 5.0f;
         blend(s, 1);
         for (int b = 0; b < 4; b++) {
             float yy = frand(0, gh - 10), hh = frand(2, 12);
-            YYGML_draw_set_colour(b % 2 ? C_CYAN : C_MAG);
-            YYGML_draw_set_alpha(0.16f * k);
-            YYGML_draw_rectangle(frand(-30, 0), yy, gw + frand(0, 30), yy + hh, false);
+            rect(frand(-30, 0), yy, gw + frand(0, 30), yy + hh, b % 2 ? C_CYAN : C_MAG, 0.16f * k);
         }
         blend(s, 0);
-        if (j->scr_t >= 4) {
-            YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(0.14f);
-            YYGML_draw_rectangle(0, 0, gw, gh, false);
-        }
+        if (j->scr_t >= 4) rect(0, 0, gw, gh, C_WHITE, 0.14f);
         YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(1);
         return;
     }
     int t = j->sp_t;
-    float in = t < 12 ? t / 12.0f : (t > SPC_DUR - 16 ? (SPC_DUR - t) / 16.0f : 1.0f);
-    if (in < 0) in = 0;
-    YYGML_draw_set_colour(0);
-    YYGML_draw_set_alpha(0.16f * in);                       /* scanlines */
-    for (float yy = (float)(t % 6); yy < gh; yy += 6) YYGML_draw_rectangle(0, yy, gw, yy + 2, false);
-    float bar = gh * 0.09f * in;                             /* letterbox */
-    YYGML_draw_set_alpha(in);
-    YYGML_draw_rectangle(0, 0, gw, bar, false);
-    YYGML_draw_rectangle(0, gh - bar, gw, gh, false);
-    blend(s, 1);                                             /* torn colour bands, more and more of them */
-    int nb = 3 + (t < SPC_SLAM ? t / 18 : 2);
-    for (int k = 0; k < nb; k++) {
-        float yy = frand(bar, gh - bar - 8), hh = frand(2, 12);
-        YYGML_draw_set_colour(k % 3 == 0 ? C_WHITE : k % 2 ? C_CYAN : C_MAG);
-        YYGML_draw_set_alpha(0.16f * in);
-        YYGML_draw_rectangle(frand(-40, 0), yy, gw + frand(0, 40), yy + hh, false);
-    }
-    if (j->scr_t > 0)                                        /* each clone strike jolts the picture */
-        for (int k = 0; k < 2; k++) {
-            float yy = frand(bar, gh - bar - 20), hh = frand(10, 26);
-            YYGML_draw_set_colour(k ? C_CYAN : C_WHITE);
-            YYGML_draw_set_alpha(0.3f);
-            YYGML_draw_rectangle(frand(-60, 0), yy, gw + frand(0, 60), yy + hh, false);
+    /* the white-out between space and the ground: it builds as the planet's glow fills the frame */
+    float white = t < MF_FLASH - 12 ? 0 : t < MF_FLASH + 6 ? ease_io(lin01(t, MF_FLASH - 12, MF_FLASH + 6))
+                : t < MF_LAND ? 1 : 1 - ease_io(lin01(t, MF_LAND, MF_LAND + 18));
+    if (t >= MF_ASC && t < MF_LAND && white < 0.999f) mf_draw_space(s, j, gw, gh);
+    if (t >= MF_RIFT && t < MF_MOON + 14) {                  /* the tear in the sky jolts the picture */
+        blend(s, 1);
+        for (int b = 0; b < 3; b++) {
+            float yy = frand(0, gh - 12), hh = frand(2, 10);
+            rect(frand(-30, 0), yy, gw + frand(0, 30), yy + hh, b == 1 ? C_MAG : C_CYAN, t >= MF_MOON ? 0.2f : 0.1f);
         }
-    for (int k = 0; k < (t < SPC_SLAM ? t / 8 : 10); k++) {  /* dead pixels raining down the screen */
-        float px = (float)((k * 73 + 17) % 97) / 97.0f * gw, py = (float)(((t * (5 + k % 4)) + k * 131) % (int)gh);
-        float sz = 4 + (k % 3) * 3;
-        YYGML_draw_set_colour(k % 3 == 0 ? C_WHITE : k % 2 ? C_CYAN : C_MAG);
-        YYGML_draw_set_alpha(0.5f * in);
-        YYGML_draw_rectangle(px, py, px + sz, py + sz, false);
+        blend(s, 0);
     }
-    blend(s, 0);
-    int dt = t - SPC_SLAM;
-    if (dt >= 1 && dt <= 10) {                               /* the blue screen of death, held */
-        YYGML_draw_set_colour(BSOD_BLUE);
-        YYGML_draw_set_alpha(0.94f);
-        YYGML_draw_rectangle(0, 0, gw, gh, false);
-        YYGML_draw_set_colour(C_WHITE);
-        YYGML_draw_set_alpha(0.85f);
-        YYGML_draw_rectangle(gw * 0.12f, gh * 0.44f, gw * 0.12f + gh * 0.05f, gh * 0.49f, false);   /* a cursor block */
-        for (int l = 0; l < 7; l++) {                        /* lines of crash text, typed out */
-            float ly = gh * 0.52f + l * gh * 0.045f, lw = gw * (0.25f + 0.08f * ((l * 37) % 5));
-            float typed = clampf((dt - l * 0.8f) / 3.0f, 0, 1);
-            if (typed > 0) YYGML_draw_rectangle(gw * 0.12f, ly, gw * 0.12f + lw * typed, ly + gh * 0.018f, false);
-        }
-    } else if (dt > 10 && dt <= 18) {                        /* ... and it breaks up, slice by slice */
-        static const unsigned char ORDER[10] = { 3, 7, 1, 9, 5, 0, 8, 2, 6, 4 };
-        YYGML_draw_set_colour(BSOD_BLUE);
-        for (int k = 0; k < 10; k++) {
-            if (dt - 10 > ORDER[k] * 8 / 10) continue;       /* this slice is gone */
-            float y0 = gh * k / 10.0f, sh = frand(-gw * 0.06f, gw * 0.06f);
-            YYGML_draw_set_alpha(0.9f);
-            YYGML_draw_rectangle(sh, y0, gw + sh, y0 + gh / 10.0f + 1, false);
-        }
-    }
-    if (dt >= 0 && dt < 3) {                                 /* the flash */
-        YYGML_draw_set_colour(C_WHITE);
-        YYGML_draw_set_alpha(1 - dt / 3.0f);
-        YYGML_draw_rectangle(0, 0, gw, gh, false);
-    }
-    if (t >= SPC_SLAM && t < SPC_SLAM + 48) {                /* FATAL ERROR */
-        float k = gw / 600.0f * 2.4f;
-        float a = t < SPC_SLAM + 36 ? 1.0f : (SPC_SLAM + 48 - t) / 12.0f;
-        spr(s, GR_FATAL, (float)((t / 3) % 4), gw * 0.5f + frand(-3, 3), gh * 0.3f, k, k, 0, C_WHITE, a);
-    }
+    if (white > 0) rect(0, 0, gw, gh, t < MF_LAND ? RGB(255, 246, 232) : RGB(255, 236, 205), white);
+    float in = ease_io(lin01(t, 0, 16)) * (1 - ease_io(lin01(t, SPC_DUR - 24, SPC_DUR)));
+    float bar = gh * 0.1f * in;                              /* letterbox */
+    rect(0, 0, gw, bar, 0, in);
+    rect(0, gh - bar, gw, gh, 0, in);
     YYGML_draw_set_colour(C_WHITE);
     YYGML_draw_set_alpha(1);
 }
