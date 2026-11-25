@@ -167,12 +167,30 @@ cb.hit(6, 20, -6, 32, 1.4, 0.6, 0.9, 3, -2, 14, knock=1, col='ice').snd(3, 'ice'
 for t in (4, 7, 10):
     cb.fx(t, 'shatter', -4, -4, 0.35)
 
-aa = move(TL('AA', 22))                                    # aerial glitch spin
+aa = move(TL('AA', 22, chain=12))                          # aerial glitch spin (-> clone uplink -> data crash)
 AIR_W = air(dict(P.TUCK, uf=-60, lf=-30), -36)
 aa.k(0, air(P.FALL, -34)).k(3, AIR_W, 'out', wk='sword', w=-90).k(9, AIR_W, 'lin', wk='sword', rot=200, w=-90, gh=1)
 aa.k(15, AIR_W, 'lin', wk='sword', rot=360, w=-90).k(22, air(P.FALL, -34), 'inout', wk='none', rot=360)
 aa.hit(6, 16, -30, 32, 1.4, 1.4, 0.6, 2, 2, 12, col='glitch').hit(12, 16, -30, 32, 1.4, 1.4, 0.6, 3, 3, 12, col='glitch')
 aa.snd(5, 'woosh1', 1.2).snd(11, 'woosh2', 1.2).fx(2, 'glitch', 10, -36, 0.5)
+aa.ev(1, 'vel', hs=1.5, vs=-3.5)                           # a little lift, so the chain fits in a jump
+
+aa2 = move(TL('AA2', 24, chain=13))                        # clone uplink: a rising knee, a clone launches him
+KNEE = air(dict(P.KICK_CHAMBER, sp=-100, hd=-96, tf=-60, sf=60, tb=120, sb=100, uf=-40, lf=-80, ub=130, lb=80), -40)
+aa2.k(0, air(P.FALL, -34)).k(4, air(P.TUCK, -36), 'out').k(8, KNEE, 'expo', gh=1).k(16, KNEE, 'lin').k(24, air(P.FALL, -34), 'inout')
+aa2.ev(2, 'vel', hs=1.0, vs=-5.5).snd(6, 'woosh2', 1.3).ev(3, 'glitch', n=4)
+aa2.hit(8, 14, -44, 24, 1.2, 1.3, 0.7, 2, -6, 14, col='glitch').fx(8, 'spark', 16, -46, 0.7)
+aa2.clone(3, 'CL_UPLINK', -12, 0, rel='enemy', face=1).snd(3, 'clone', 1.2)
+
+aa3 = move(TL('AA3', 40))                                  # data crash: a front flip, then down with the spear
+CRASH_W = air(dict(P.TUCK, uf=-150, lf=-170, ub=-150, lb=-170), -40)
+CRASH = air(dict(P.SPEAR_THRUST, sp=-40, hd=-50, uf=40, lf=45, ub=30, lb=40, back_over=1, tf=150, sf=170, tb=190, sb=200, w=60), -36)
+aa3.k(0, air(P.FALL, -34)).k(4, CRASH_W, 'out', rot=180, wk='spear', w=-90).k(9, CRASH_W, 'lin', rot=360, wk='spear', w=-90)
+aa3.k(12, CRASH, 'expo', rot=360, wk='spear', w=60, gh=1).k(34, CRASH, 'lin', rot=360, wk='spear', w=60, gh=1)
+aa3.k(40, air(P.FALL, -34), 'inout', rot=360)
+aa3.ev(1, 'vel', hs=0.5, vs=-3.0).ev(2, 'glitch', n=6).snd(2, 'glitch', 1.0)
+aa3.ev(11, 'vel', hs=4.5, vs=10.0).snd(11, 'woosh3', 0.8).fx(11, 'spawn', 0, -30, 0.8)
+aa3.hit(14, 22, -12, 32, 1.4, 1.4, 0.6, 3, 4, 16, col='glitch').hit(20, 22, -12, 32, 1.4, 1.4, 0.6, 3, 4, 16, col='glitch')
 
 ab = move(TL('AB', 28))                                    # phantom dive kick with an echo
 DIVE = air(dict(P.KICK_OUT, sp=-60, tf=40, sf=45, tb=150, sb=100, uf=-150, lf=-170, ub=200, lb=210), -32)
@@ -244,6 +262,13 @@ c = clone_script(TL('CL_GHOST_SLASH', 18))
 c.k(0, SW_W, wk='sword', w=-150).k(6, SW_W, 'lin', wk='sword', w=-150).k(10, SW_E, 'expo', wk='sword', w=30).k(18, SW_E, 'lin', wk='sword', w=30)
 c.hit(10, 18, -34, 32, 1.2, 1.2, 0.4, 2, -2, 10, col='glitch').fx(9, 'arc', 12, -36, 0.7).snd(9, 'woosh1', 1.4)
 
+c = clone_script(TL('CL_UPLINK', 24))                      # (air chain) a clone under him uppercuts him up
+c.k(0, P.CROUCH, gh=1).k(5, P.CROUCH, 'lin').k(9, air(P.UPPER, -40), 'expo', gh=1).k(16, air(P.UPPER, -46), 'out').k(24, air(P.FALL, -40), 'inout')
+c.hit(9, 14, -40, 32, 1.3, 1.6, 0.6, 1, -9, 18, col='volt').fx(9, 'bolt', 14, -40, 0.7).snd(8, 'woosh1', 1.3)
+
+c = clone_script(TL('CL_WIN', 44))                         # (victory) back to back with him, pointing the other way
+c.k(0, P.POSE_COOL).k(44, P.POSE_COOL, 'lin')
+
 c = clone_script(TL('CL_ICE', 30))
 c.k(0, STOMP_UP).k(8, STOMP_UP, 'lin').k(11, STOMP, 'expo').k(30, STOMP, 'lin')
 c.spike(11, 40, size=1.3, vf=-6.5, dmg=0.45).fx(11, 'shock', 12, -2, 0.6).snd(11, 'ice', 1.0)
@@ -280,6 +305,33 @@ GIANT_DOWN = S(sp=-50, hd=-66, uf=60, lf=70, ub=50, lb=60, back_over=1, tf=10, s
 fin.k(0, air(P.TUCK, -40), wk='giant', w=-90).k(10, GIANT_UP, 'out', wk='giant', w=-90).k(24, GIANT_UP, 'lin', wk='giant', w=-95)
 fin.k(30, GIANT_DOWN, 'in', wk='giant', w=80, gh=1).k(44, GIANT_DOWN, 'lin', wk='giant', w=82).k(56, P.POSE_COOL, 'inout', wk='none').k(64, P.POSE_COOL, 'lin')
 fin.snd(10, 'charge', 0.8).ev(12, 'glitch', n=20).snd(29, 'woosh3', 0.7)
+
+
+# ---------------------------------------------------------------------------------------------
+# not attacks: the victory and an idle flourish (played by grey.c as pose overrides, no hitboxes)
+# ---------------------------------------------------------------------------------------------
+win = move(TL('WIN', 100))                                 # a twirl of the glitch sword, a clone, the blade shatters
+HOLD_UP = S(sp=-92, hd=-80, uf=-40, lf=-70, ub=110, lb=60, tf=60, sf=98, tb=114, sb=98)
+TWIRL = S(sp=-90, hd=-84, uf=-6, lf=-10, ub=110, lb=60, tf=60, sf=98, tb=114, sb=98)
+REST = S(sp=-86, hd=-80, uf=70, lf=40, ub=110, lb=60, tf=62, sf=98, tb=112, sb=98)
+win.k(0, ST).k(8, HOLD_UP, 'out').k(12, TWIRL, 'out', wk='sword', w=-90)
+spin = [30, 150, 270, 390, 510, 630, 750, 840, 910, 960]   # fast, then slowing (each step < 180 degrees)
+for i, w in enumerate(spin):
+    win.k(15 + 3 * i, TWIRL, 'lin', wk='sword', w=w)
+win.k(50, REST, 'expo', wk='sword', w=1060).k(62, REST, 'lin', wk='sword', w=1062)
+win.k(70, P.POSE_COOL, 'out', wk='sword', w=-14).k(72, P.POSE_COOL, 'lin', wk='none').k(100, P.POSE_COOL, 'lin')
+win.fx(10, 'glitch', 12, -52, 0.5).snd(10, 'glitch', 1.3)
+for t, pt in ((15, 1.1), (24, 1.2), (33, 1.3)):
+    win.snd(t, 'woosh1', pt)
+win.clone(56, 'CL_WIN', -14, 0, rel='self', face=-1).snd(56, 'clone', 1.1)
+win.fx(71, 'shatter', 24, -44, 0.6).snd(71, 'glitch', 0.8)
+
+idle = move(TL('IDLE', 52))                                # now and then at rest: the blade appears, spins, is dismissed
+idle.k(0, ST).k(8, HOLD_UP, 'out').k(11, TWIRL, 'out', wk='sword', w=-90)
+for i, w in enumerate((30, 150, 270, 390, 510, 600, 660)):
+    idle.k(14 + 3 * i, TWIRL, 'lin', wk='sword', w=w)
+idle.k(38, REST, 'expo', wk='sword', w=720).k(42, REST, 'lin', wk='none').k(52, ST, 'inout')
+idle.fx(9, 'glitch', 12, -52, 0.4).snd(9, 'glitch', 1.5).fx(41, 'shatter', 14, -24, 0.45)
 
 
 # ---------------------------------------------------------------------------------------------

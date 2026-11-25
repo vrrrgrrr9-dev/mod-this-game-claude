@@ -197,7 +197,8 @@ teleports, clones and now and then while idle.
 | Attack A | Glitch Jab-Cross -> **Clone Cut** (a glitch sword appears mid-swing while a clone slashes from behind the opponent) -> **Frost Rise** (ice spikes in a row, rising uppercut) -> **Fireball Flip** (a backflip, two fireballs thrown upside down) -> **Fatal Glitch** (teleports behind, three clones and Grey run him through with glitch spears at once, shatter, knockdown) |
 | Attack B | Roundhouse -> **Twin Clone Kick** (low sweep while a clone flies over with a kick) -> **Ice Lance Shatter** (a lance erupts under the opponent, a spinning heel shatters it into shards) -> **Meteor Axe** (jump, front flip, burning heel, knockdown) |
 | Down + attack A / B | Glitch Sweep Blade (trips) / Frost Slide |
-| Air attack A / B | Aerial Glitch Spin / Phantom Dive (dive kick with a clone echo) |
+| Air attack A (keep pressing) | Aerial Glitch Spin -> **Clone Uplink** (a rising knee while a clone appears under the opponent and launches him with a lightning uppercut) -> **Data Crash** (a front flip, then straight down with the glitch spear; the floor quakes: shock rings, ice spikes, a scorch mark, knockdown). The chain only goes on while he is still in the air |
+| Air attack B | Phantom Dive (dive kick with a clone echo) |
 | Run + attack | Glitch Dash: through the opponent, three echoes slash behind him |
 | Skill | **Clone Legion**: four clones burst out: ice spikes, two fireballs, a spear from the sky, a lightning dash kick |
 | Down + skill | **Element Overload**: ice prison, fire pillar, glitch spear rain |
@@ -230,6 +231,14 @@ costs 55 / 50.
   element's own debris. Grey's own blows **hit-stop** him for a few frames (6 on a knockdown,
   3 on a heavy hit) and knockdowns tear the screen for a moment. All of this only when the
   hitbox actually overlaps an opponent: a whiff stays clean and never freezes;
+* air dashes have their own pose: he blinks (glitch burst) and streaks, leaving afterimages and
+  pixels; breaking into a run kicks off with a glitch, and getting up from a knockdown he
+  **reboots** (pixels rush back into him);
+* charging: data pours up off him and rains down round him, with rings pulsing at his feet;
+* at rest, now and then (every ~7 s) a glitch sword materialises in his hand, he spins it and
+  dismisses it; once **every opponent is down** he does his **victory**: twirls the blade, a
+  hologram clone appears back to back with him, the blade shatters and he holds the pose (until
+  a new round starts or he moves). Neither has hitboxes;
 * he **materialises** out of rushing pixels when the match starts, **glitches** and sheds pixels
   when he is hit, crashes in a burst of pixels, bits and dust when knocked down, and on a **K.O.**
   he is deleted pixel by pixel down to a faint ghost (back to normal if the round restarts);

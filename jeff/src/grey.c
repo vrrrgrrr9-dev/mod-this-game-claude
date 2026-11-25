@@ -113,6 +113,7 @@ typedef struct {
     Bolt bo[N_BOLT]; Mark mk[N_MARK];
     int hitstop, scr_t, was_air;
     int entry_t, prev_loco, dead_t;             /* materialising at the start, getting hit, KO'd */
+    int pz_tl, pz_t, pz_ev, win_wait;           /* a pose override that is not an attack: victory, idle flourish */
     /* SYSTEM CRASH */
     int sp_on, sp_t, tgt_id, depth_saved, hit_done; float tgt_x, tgt_y; double old_depth;
 } Grey;
@@ -326,6 +327,29 @@ static bool enemy_in_box(CInstance *s, float x, float y, float hw, float hh) {
     int id = -1;
     return nearest_enemy_at(s, x, y + 31, &id, hw + 12, hh + 31) != 0;
 }
+/* is every opponent down (K.O.)? (false with no opponent at all, or if he is down himself) */
+static bool enemies_beaten(CInstance *s) {
+    if (!parent_ok(s) || pget(s, &g_VAR_is_dead) > 0.5) return false;
+    RValue me = rv_undef();
+    YYGML_Variable_GetValue(parent_of(s), g_VAR_plr_team.id, ARRAY_INDEX_NONE, &me, false, false);
+    double my_team = rv_num(&me); rv_free(&me);
+    int cnt = inst_count(s, OBJ_PARENT_CHARACTER), foes = 0, down = 0;
+    for (int i = 0; i < cnt; i++) {
+        int iid = -1;
+        CInstance *c = inst_nth(s, OBJ_PARENT_CHARACTER, i, &iid);
+        if (!c || c == s) continue;
+        RValue cp = rv_undef(); RValue id = rv_real(iid);
+        YYGML_Variable_GetValue(&id, g_VAR_parent.id, ARRAY_INDEX_NONE, &cp, false, false);
+        if (!inst_exists_rv(s, &cp)) { rv_free(&cp); continue; }
+        double team = get_rv(&cp, &g_VAR_plr_team, ARRAY_INDEX_NONE);
+        double dead = get_rv(&cp, &g_VAR_is_dead, ARRAY_INDEX_NONE);
+        rv_free(&cp);
+        if (team == my_team) continue;
+        foes++;
+        if (dead > 0.5) down++;
+    }
+    return foes > 0 && down == foes;
+}
 static bool free_at(CInstance *s, float x, float y) {
     RValue r = rv_undef();
     RValue a[3] = { rv_real(x), rv_real(y), rv_real(OBJ_PARENT_SOLID) };
@@ -423,7 +447,7 @@ static void base_pose(int which, GPose *p) { key_pose(&k_gposes[which], p); }
 
 static void grey_reset(Grey *j, CInstance *s) {
     char *p = (char *)j; for (unsigned k = 0; k < sizeof(Grey); k++) p[k] = 0;
-    j->inst = s; j->dir = 1; j->move = MOVE_NONE; j->tgt_id = -1; j->src = -1;
+    j->inst = s; j->dir = 1; j->move = MOVE_NONE; j->tgt_id = -1; j->src = -1; j->pz_tl = -1;
     base_pose(GPZ_STAND, &j->drawn); j->from = j->drawn;
 }
 static Grey *slot(CInstance *s, bool create) {
@@ -1095,15 +1119,36 @@ static void grey_start(CInstance *s, int step) {
     case 53: start_move(s, j, GT_B4, -1); break;
     case 10: start_move(s, j, GT_CA, -1); break;
     case 60: start_move(s, j, GT_CB, -1); break;
-    case 11: start_move(s, j, GT_AA, -1); break;
+    case 11: start_move(s, j, GT_AA, k_gtl[GT_AA].chain); break;
+    case 12: if (on_air(s)) start_move(s, j, GT_AA2, k_gtl[GT_AA2].chain); else goto end_combo; break;   /* air chain */
+    case 13: if (on_air(s)) start_move(s, j, GT_AA3, -1); else goto end_combo; break;
     case 61: start_move(s, j, GT_AB, -1); break;
     case 100: start_move(s, j, GT_S1, -1); bset(s, &g_VAR_hspeed, 0); break;
     case 110: start_move(s, j, GT_S2, -1); bset(s, &g_VAR_hspeed, 0); break;
     default:                                               /* unknown step: end the attack cleanly */
+    end_combo:
         iset(s, &g_VAR_combo_next, -1);
         bset_i(s, &g_VAR_alarm, 2, 1);
         break;
     }
+}
+static bool air_move(int tl) { return tl == GT_AA || tl == GT_AB || tl == GT_AA2 || tl == GT_AA3; }
+/* the end of the air chain: the spear hits the floor */
+static void data_crash_landing(CInstance *s, Grey *j) {
+    float x = sx_(s), y = sy_(s), f = j->dir;
+    hit_at(s, j, x + f * 18, y - 14, SPR_MASK64, 1.6f, 1.0f, 1.4, f * 5.0, -7.0, 24, 1, 3, GC_GLITCH, 2);
+    fx_kind(j, GF_SHATTER, x + f * 18, y - 20, 1.2f, f);
+    fx_at(j, GR_RING, x, y - 1, 1.0f, 1.0f, 0, 2, 1, C_CYAN);
+    fx_at(j, GR_RING, x, y - 1, 1.6f, 1.6f, 0, 3, 1, C_MAG);
+    spawn_spike(j, x - f * 30, y, 0.9f, -4.0f, 0.2f, f);
+    spawn_spike(j, x + f * 46, y, 1.0f, -4.0f, 0.2f, f);
+    burst(j, PK_PIXEL, x, y - 10, 24, 5.0f, 30, 2.4f, C_CYAN);
+    burst(j, PK_SPARK, x + f * 18, y - 8, 14, 6.0f, 14, 1.6f, C_WHITE);
+    for (int k = 0; k < 4; k++) part(j, PK_SMOKE, x + frand(-24, 24), y - 2, frand(-1.5f, 1.5f), -frand(0.2f, 0.7f), 34, 8, RGB(150, 150, 160));
+    mark(j, 0, x + f * 10, y, 60, 180);
+    camera_shake(2);
+    play(s, SND_STRONG2, 0.9); play_c(s, GS_GLITCH, 0.8);
+    j->glitch_t = 10;
 }
 static void move_step(CInstance *s, Grey *j) {
     if (j->hitstop > 0) { j->hitstop--; bset(s, &g_VAR_hspeed, 0); return; }   /* frozen on the impact */
@@ -1115,15 +1160,16 @@ static void move_step(CInstance *s, Grey *j) {
         double hs = j->dir * d;
         if (j->home_t > 0) { j->home_t--; hs += j->dir * j->home_v; }
         bset(s, &g_VAR_hspeed, hs);
-    } else if (j->move != GT_AB && j->move != GT_AA) {
+    } else if (!air_move(j->move)) {
         double hs = 0;
         if (j->home_t > 0) { j->home_t--; hs = j->dir * j->home_v; }
         bset(s, &g_VAR_hspeed, hs);
     }
     run_events(s, j, j->move, t, &j->ev, sx_(s), sy_(s), j->dir);
     if (j->move == MOVE_NONE) return;
-    if ((j->move == GT_AA || j->move == GT_AB) && t > 6 && !on_air(s)) {   /* landed: cut to the landing */
+    if (air_move(j->move) && t > 6 && !on_air(s)) {        /* landed: cut to the landing */
         if (j->move == GT_AB) { fx_kind(j, GF_SHOCK, sx_(s), sy_(s) - 1, 0.6f, j->dir); camera_shake(1); }
+        if (j->move == GT_AA3) data_crash_landing(s, j);
         end_move(s, j);
         return;
     }
@@ -1173,6 +1219,8 @@ static int loco_pose(CInstance *s, Grey *j, GPose *o) {
     }
     if (on_air(s)) {
         j->air_t++;
+        float dash = (float)iget(s, &g_VAR_stats_airdashspd);
+        if (dash > 1 && fabsf_(hs) >= dash * 0.95f) { base_pose(GPZ_AIRDASH, o); return 11; }   /* air dash */
         if (vs < -0.6f) {                                   /* rising: tuck and a front flip */
             base_pose(GPZ_TUCK, o);
             float u = clampf((j->air_t - 3) / 24.0f, 0, 1);
@@ -1439,6 +1487,30 @@ void gml_Object_o_grey_Destroy_0(CInstance *s, CInstance *o) {
     gml_Object_o_parent_character_Destroy_0(s, o);
 }
 
+/* not attacks: once every opponent is down he does his victory (and holds its last pose); now and
+   then at rest he spins up a glitch sword. Both only while he stands still; anything else cancels. */
+#define WIN_DELAY 40
+#define IDLE_EVERY 420
+static int pose_override(CInstance *s, Grey *j, int src, GPose *target) {
+    bool calm = src == 10;                                  /* standing still on the ground */
+    if (calm && enemies_beaten(s)) {
+        if (j->pz_tl != GT_WIN && ++j->win_wait >= WIN_DELAY) { j->pz_tl = GT_WIN; j->pz_t = 0; j->pz_ev = 0; }
+    } else {
+        j->win_wait = 0;
+        if (j->pz_tl == GT_WIN) j->pz_tl = -1;              /* a new round, or he moved */
+    }
+    if (calm && j->pz_tl < 0 && j->idle_t % IDLE_EVERY == IDLE_EVERY - 120) { j->pz_tl = GT_IDLE; j->pz_t = 0; j->pz_ev = 0; }
+    if (j->pz_tl < 0) return src;
+    if (!calm) { j->pz_tl = -1; return src; }
+    int dur = k_gtl[j->pz_tl].dur;
+    j->pz_t++;
+    tl_sample(j->pz_tl, (float)(j->pz_t < dur ? j->pz_t : dur), target);
+    run_events(s, j, j->pz_tl, j->pz_t, &j->pz_ev, sx_(s), sy_(s), facing(s));
+    int out = 300 + j->pz_tl;
+    if (j->pz_t >= dur && j->pz_tl == GT_IDLE) j->pz_tl = -1;   /* (the victory pose holds) */
+    return out;
+}
+
 void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
     Grey *j = slot(s, true);
     g_grey_tick++;
@@ -1461,8 +1533,11 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
             if (pok && j->move != MOVE_NONE && (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5))
                 end_move(s, j);                               /* interrupted */
             if (j->move != MOVE_NONE) move_step(s, j);
+            if ((j->move == GT_AA || j->move == GT_AA2) && j->t > 4 && pok && pget(s, &g_VAR_keyp_action1) > 0.5)
+                iset_b(s, &g_VAR_combo_nextcombo, true);      /* attack again in the air: the chain goes on */
             if (j->move != MOVE_NONE) { tl_sample(j->move, (float)j->t, &target); src = 100 + j->move; }
             else src = loco_pose(s, j, &target);
+            if (j->move == MOVE_NONE) src = pose_override(s, j, src, &target);
         }
     }
     if (src != j->src && !(src >= 100 && src < 200 && j->src == src)) {
@@ -1507,6 +1582,31 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
         fx_at(j, GR_RING, x, y - 1, 0.6f, 0.6f, 0, 2, 1, C_MAG);
         for (int k = 0; k < 3; k++) part(j, PK_SMOKE, x + frand(-12, 12), y - 2, frand(-1.2f, 1.2f), -0.4f, 26, 6, RGB(150, 150, 160));
     }
+    if (src == 11) {                                           /* air dash: he blinks, then streaks */
+        if (j->prev_loco != 11) {
+            if (j->glitch_t < 6) j->glitch_t = 6;
+            fx_kind(j, GF_GLITCH, x - f * 10, y - 30, 0.8f, f);
+            burst(j, PK_PIXEL, x - f * 6, y - 30, 12, 3.0f, 20, 2.0f, glitch_col());
+        }
+        if (g_grey_tick % 2 == 0) ghost_push(j, &j->drawn, x, y, f, (g_grey_tick / 2) % 2 ? C_CYAN : C_MAG);
+        part(j, PK_STREAK, x - f * 8, y - frand(14, 46), -f * 6, 0, 8, 1.4f, C_WHITE);
+        part(j, PK_PIXEL, x - f * 6, y - frand(10, 50), -f * frand(0.5f, 2), frand(-0.5f, 0.5f), 16, 2, glitch_col());
+    } else if (j->prev_loco == 11)                             /* and lands out of it in a puff of pixels */
+        burst(j, PK_PIXEL, x, y - 30, 8, 2.0f, 16, 1.8f, glitch_col());
+    if (j->prev_loco == 1 && src != 1 && src != 2) {           /* up from a knockdown: he reboots */
+        if (j->glitch_t < 8) j->glitch_t = 8;
+        for (int k = 0; k < 18; k++) {
+            float ox = frand(-30, 30), oy = frand(-60, 0);
+            Part *q = part(j, PK_PIXEL, x + ox, y - 26 + oy, -ox / 6.0f, -oy / 6.0f, 7, frand(1.5f, 3), glitch_col());
+            if (q) { q->g = 0; q->drag = 1; }
+        }
+        fx_kind(j, GF_SPAWN, x, y, 0.8f, f);
+    }
+    if (src == 8 && j->prev_loco != 8) {                       /* breaking into a run: a glitch kick-off */
+        fx_kind(j, GF_GLITCH, x - f * 8, y - 28, 0.6f, f);
+        for (int k = 0; k < 4; k++) part(j, PK_STREAK, x - f * 6, y - frand(12, 48), -f * 7, 0, 8, 1.4f, k & 1 ? C_CYAN : C_MAG);
+        part(j, PK_SMOKE, x - f * 8, y - 2, -f * 1.2f, -0.3f, 18, 5, RGB(150, 150, 160));
+    }
     j->prev_loco = src;
     if (pok && pget(s, &g_VAR_is_dead) > 0.5) {                /* KO: deleted, pixel by pixel */
         if (j->dead_t < 10000) j->dead_t++;
@@ -1534,6 +1634,11 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
     if (src == 7) {                                            /* charging: data pouring off him */
         if (g_grey_tick % 2 == 0) part(j, PK_BIT, x + frand(-14, 14), y - frand(0, 40), 0, -frand(0.8f, 1.8f), 30, 1, (rnd() & 1) ? C_CYAN : C_MAG);
         if (g_grey_tick % 9 == 0) bolt(j, x + frand(-20, 20), y - frand(40, 70), x + frand(-20, 20), y - frand(0, 30), 4, 1.5f, C_CYAN);
+        if (g_grey_tick % 16 == 0) fx_at(j, GR_RING, x, y - 1, 0.55f, 0.55f, 0, 2, 1, C_CYAN);   /* pulses at his feet */
+        if (g_grey_tick % 3 == 0) {                            /* and data raining down round him */
+            Part *q = part(j, PK_BIT, x + (float)((int)(rnd() % 7) - 3) * 7, y - frand(60, 80), 0, frand(1.5f, 2.5f), 26, 1, RGB(120, 255, 180));
+            if (q) { q->g = 0; q->drag = 1; }
+        }
     }
     if (j->glitch_t > 0 && g_grey_tick % 2 == 0)
         part(j, PK_PIXEL, x + frand(-12, 12), y - frand(6, 58), frand(-2, 2), frand(-1, 1), 14, frand(1.5f, 3), glitch_col());

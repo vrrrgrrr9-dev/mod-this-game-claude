@@ -1116,6 +1116,21 @@ check('grey_star.png' in seen_hit and 'grey_star.png' not in seen_miss, 'impact 
 check(n_hit > n_miss, f'hit-stop only when it lands: {n_hit} frames vs {n_miss} on a whiff')
 gfoe.set('x', 450)
 
+print('[26c] Grey air chain: glitch spin -> clone uplink -> data crash, landing with a quake')
+grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 430)
+def high_jump(): grey.set('y', 170); grey.set('vspeed', -2); gr_ctrl.set('is_onair', 1)
+seen, hits, xs = grun(11, frames=240, setup=high_jump)
+check(len(hits) >= 6, f'all three air moves, the uplink clone and the landing hit: {len(hits)} hitboxes')
+check({'grey_bolt.png', 'grey_spear.png', 'grey_ring.png', 'grey_shatter.png'} <= seen,
+      f'uplink lightning, the spear dive, the landing rings and shatter drawn (missing {sorted({"grey_bolt.png", "grey_spear.png", "grey_ring.png", "grey_shatter.png"} - seen)})')
+check('BAD_SPRITE_DRAW' not in seen and gr_ctrl.get('is_attacking') == 0, 'clean, and the attack is over after landing')
+for _ in range(30): gtick(press_next=False)
+grey.set('x', 380); gfoe.set('x', 430)
+def low_jump(): grey.set('y', 292); grey.set('vspeed', 0); gr_ctrl.set('is_onair', 1)
+seen, hits, xs = grun(11, frames=120, setup=low_jump)
+check('grey_bolt.png' not in seen and gr_ctrl.get('is_attacking') == 0, 'landed before the spin ended: no chain on the ground')
+for _ in range(30): gtick(press_next=False)
+
 print('[27] Grey skills: Clone Legion, Element Overload')
 grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 470)
 seen, hits, xs = grun(100, press=False)
@@ -1207,6 +1222,28 @@ check(ad is not None and 0.3 < ad < 0.4, f'K.O.: dissolves down to a faint ghost
 gr_ctrl.set('is_dead', 0); gr_ctrl.set('is_fallen', 0)
 for _ in range(3): calls.clear(); gtick()
 check(head_alpha() is not None and head_alpha() > 0.99, 'back to normal when the round restarts')
+
+print('[30c] Grey at rest: now and then the glitch sword appears, spins and is dismissed')
+grey.set('x', 400); grey.set('y', 300); grey.set('vspeed', 0); grey.set('hspeed', 0); gr_ctrl.set('is_onair', 0)
+seen, hb = set(), 0
+for _ in range(430):
+    calls.clear(); gtick(press_next=False)
+    seen |= drawn_names_g(); hb += sum(1 for c in calls if c[0] == 'instance_create' and c[1] == 224)
+check({'grey_sword.png', 'grey_shatter.png'} <= seen and hb == 0, f'idle flourish drawn, no hitboxes ({hb})')
+
+print('[30d] Grey wins: once every opponent is down he twirls the blade, a clone joins him, the blade shatters')
+ctrls = [i for i in insts.values() if i.obj == 431 and i is not gr_ctrl and i.get('plr_team') not in (None, 1)]
+saved = [(i, i.get('is_dead')) for i in ctrls]
+for i in ctrls: i.set('is_dead', 1)
+seen, hb = set(), 0
+for _ in range(170):
+    calls.clear(); gtick(press_next=False)
+    seen |= drawn_names_g(); hb += sum(1 for c in calls if c[0] == 'instance_create' and c[1] == 224)
+check({'grey_sword.png', 'grey_spawn.png', 'grey_shatter.png'} <= seen and hb == 0,
+      f'victory: blade, clone, shatter; no hitboxes (missing {sorted({"grey_sword.png", "grey_spawn.png", "grey_shatter.png"} - seen)})')
+for i, v in saved: i.set('is_dead', v)
+for _ in range(10): calls.clear(); gtick(press_next=False)
+check('grey_sword.png' not in drawn_names_g(), 'a new round (opponent back up): the victory ends')
 
 print('[31] Grey destroy')
 calls.clear(); call('gml_Object_o_grey_Destroy_0', grey.ptr, grey.ptr)
