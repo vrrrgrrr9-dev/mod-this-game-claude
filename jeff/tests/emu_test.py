@@ -834,9 +834,9 @@ check({'scyther_rift_v.png', 'scyther_rift_e.png', 'scyther_riftbig_v.png'} <= d
 check({'scyther_arc_rise_b.png', 'scyther_arc_rise_f.png', 'scyther_arc_orbit_b.png', 'scyther_arc_cleave_f.png'} <= d, '3D arcs drawn (back + front layers)')
 check({'scyther_orbb.png', 'scyther_orbf.png'} <= d and ({'scyther_wpn0.png', 'scyther_wpn1.png'} & d), 'scythe drawn in hand and twirling in its 3D orbit')
 check({'scyther_hitfx.png', 'scyther_bh_debris.png', 'scyther_dash.png'} <= d, 'cut flashes, debris with depth, dash lines drawn')
-strips = sum(1 for c in calls if c[0] == 'prim_end')
-ok, bad = prim_ok()
-check(strips >= 40 and prim['verts'] >= 400 and ok, f'3D blade trails + rings: {strips} strips, {prim["verts"]} vertices, balanced {bad}')
+smear = sum(1 for c in calls if c[0] == 'draw' and c[1] in sprites and sprites[c[1]][0] == 'scyther_smear.png')
+noprim = not any(c[0] in ('prim_end', 'prim_begin') for c in calls)
+check(smear >= 40 and noprim, f'3D blade trails + rings drawn as sprite quads: {smear} smear segments, no draw_primitive ({noprim})')
 check(sc_ctrl.get('is_attacking') == 0 and scy.get('combo_next') == -1, 'finisher ends the combo, is_attacking cleared')
 check(not any(c[0] == 'BAD_SPRITE_DRAW' for c in calls), 'no invalid sprite draws')
 
@@ -903,8 +903,8 @@ for start, anims_, press in ((11, ('scyther_airatk.png', 'scyther_airatk2.png'),
         if landed_at is not None and f >= landed_at: sc_ctrl.set('is_onair', 0)
         if sc_ctrl.get('is_attacking') == 0 and f > 10: break
     crater = sum(1 for c in calls if c[0] == 'instance_create' and c[1] == 224)
-    rings = sum(1 for c in calls if c[0] == 'prim_end')
-    check(set(anims_) <= seen and crater >= 2 and rings >= 4, f'{"/".join(a_[8:-4] for a_ in anims_)}: shown, dive + crater hits {crater}, rings')
+    rings = sum(1 for c in calls if c[0] == 'draw' and c[1] in sprites and sprites[c[1]][0] == 'scyther_smear.png')
+    check(set(anims_) <= seen and crater >= 2 and rings >= 4, f'{"/".join(a_[8:-4] for a_ in anims_)}: shown, dive + crater hits {crater}, ring segments {rings}')
     check(sc_ctrl.get('is_attacking') == 0, f'{start}: ends after landing')
     sc_ctrl.set('is_onair', 0)
 
@@ -1081,8 +1081,8 @@ check(any(x > 455 and xsc < 0 for x, xsc in xs), 'Fatal Glitch: teleported behin
 check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws, primitives well formed')
 check(gr_ctrl.get('is_attacking') == 0 and grey.get('combo_next') == -1, 'the finisher ends the combo')
 check({'grey_star.png', 'grey_smoke.png'} <= seen, f'impact stars and fireball smoke drawn (missing {sorted({"grey_star.png", "grey_smoke.png"} - seen)})')
-check(len(g_strips) >= 20 and all(4 <= n <= 48 and n % 2 == 0 for n in g_strips),
-      f'ribbon trails / lightning as triangle strips: {len(g_strips)} strips, sizes {sorted(set(g_strips))[:8]}')
+check(len(g_strips) == 0 and 'grey_shape.png' in seen,
+      f'ribbon trails / lightning drawn as sprite quads, no draw_primitive ({len(g_strips)} strips)')
 
 print('[25] Grey combo B: roundhouse, twin clone kick, ice lance shatter, meteor axe')
 grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 455)
