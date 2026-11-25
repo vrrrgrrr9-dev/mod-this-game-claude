@@ -10,6 +10,10 @@ GameMaker data files are full of absolute file offsets, so nothing is inserted i
 
 Event CodeIds index the YYC function table: 0xe65.. are Jeff's and 0xe6d.. Scyther's functions
 appended by src/hooks.c (jeff_initllvm); the rest are reused original functions.
+
+Also carries the "shaderfix" (from the user's WOTU_Scyther_shaderfix.apk): the game's screen
+distortion shader computes `0.05 / d` with d = min(0.25, dot(B,B)), which is 0 at the exact centre
+of the effect; it is clamped to >= 0.01 instead. Same length, patched in place in the STRG chunk.
 """
 import struct, sys
 
@@ -31,6 +35,9 @@ OBJECTS = [
         3: [(0, 0xe6e)], 4: [(OBJ_PARENT_SOLID, SOLID)],
         8: [(0, 0xe6f), (64, 0xe70), (72, 0xe71)]}),
 ]
+
+
+SHADER_FIX = (b'min( 0.25, dot( B,B ) ', b'clamp(dot(B,B),.01,.25')
 
 
 def u32(d, o): return struct.unpack_from('<I', d, o)[0]
@@ -103,6 +110,17 @@ def main():
         blob.extend(phys)
         put('<I', 15); [put('<I', type_lists[t]) for t in range(15)]
         objs.append(obj)
+
+    # the distortion shader's divide by zero (see the module docstring)
+    strg, strg_sz = ch['STRG']
+    old, new = SHADER_FIX
+    assert len(old) == len(new)
+    k = d.find(old, strg, strg + strg_sz)
+    if k >= 0 and d.find(old, k + 1, strg + strg_sz) < 0:
+        d[k:k + len(old)] = new
+        print(f'shader fix applied at {k:#x}')
+    else:
+        print('shader fix: pattern not found exactly once, left as is')
 
     # write: grow the pointer list into the dead slots, append blob, fix sizes
     struct.pack_into('<I', d, objt, n + len(objs))

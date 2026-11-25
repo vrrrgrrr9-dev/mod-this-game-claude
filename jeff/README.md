@@ -79,6 +79,9 @@ technique, chained on top of the mod:
 * `build/elfpatch.py` — adds two PT_LOAD segments (code @ `0x3600000`, data/bss @ `0x3700000`),
   relocates the program header table and patches 4 branches (each verified first).
 * `build/droidpatch.py` — adds object `o_jeff` (#685, parent `o_parent_character`) to `game.droid`.
+  It also carries the user's shader fix: the game's screen-distortion shader divided by
+  `dot(B,B)`, which is 0 at the centre of the effect, and now clamps it to at least 0.01 (same
+  length, patched in place).
 * `art/` — everything is generated: `anims.py` (body in both forms, including the kicking legs
   from `rig.py`, and the sun sword's angle per frame), `flame.py` (the dark flame, meteors and
   black holes, in blue / sun / purple palettes), `sun.py` (sun sword and shield, Solar Flare,
