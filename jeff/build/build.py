@@ -124,8 +124,19 @@ def main():
     run([sys.executable, '-I', os.path.join(HERE, 'elfpatch.py'), lib_in, elf, lib_out])
     run([sys.executable, '-I', os.path.join(HERE, 'droidpatch.py'), droid_in, droid_out])
 
+    replace = {'lib/arm64-v8a/libyoyo.so': lib_out, 'assets/game.droid': droid_out}
+    import dexpatch                                    # the user's save-recovery fix (classes5.dex)
+    if dexpatch.DEX in z.namelist():
+        fixed = dexpatch.patch(z.read(dexpatch.DEX))
+        if fixed is not None:
+            dex_out = os.path.join(work, dexpatch.DEX)
+            open(dex_out, 'wb').write(fixed)
+            replace[dexpatch.DEX] = dex_out
+            print('save-recovery fix applied to', dexpatch.DEX)
+        else:
+            print('save-recovery fix: code not found, classes5.dex left as is')
     unsigned = os.path.join(work, 'WOTU_COCO69_Jeff-unsigned.apk')
-    repack(apk, unsigned, {'lib/arm64-v8a/libyoyo.so': lib_out, 'assets/game.droid': droid_out}, assets)
+    repack(apk, unsigned, replace, assets)
     signer = args.signer or os.path.join(work, 'uber-apk-signer.jar')
     if not os.path.exists(signer):
         print('no uber-apk-signer.jar: leaving the APK unsigned ->', unsigned)
