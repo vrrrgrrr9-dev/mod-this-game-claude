@@ -21,7 +21,11 @@ v10 = MOONFALL (Grey's new ultimate) + the lava world. Built and signed:
 Not yet done for v10 (do these first, in order):
 1. Finish the emulator suite: `$S/venv/bin/python tests/emu_test.py $S/jout2/libyoyo.so $S/jout2/gen/jeff.elf $S/jout2/gen/engine.ld`
    ([28] is the new, slow MOONFALL test: 460 frames). If `rebuild.sh` times out, raise its 900 s emu timeout.
-   At hand-off everything up to [27] passed (the Grey sprite count was updated 37 -> 49).
+   Result at hand-off: everything passes, incl. [28]/[29] MOONFALL (1 blow at frame 372, Moon/Earth/melt/plume/
+   lava all drawn, no invalid draws, max 674 draws/frame), EXCEPT one perf guideline: "blend-mode switches per
+   frame <= 24" measured 26 in the space shot. Fix: in `mf_draw_space` merge additive passes (draw the orange
+   atmosphere glow and the globe rings in one additive block, and the contact flash glow + plume glow together)
+   so the frame switches blend mode <= 24 times. (The sprite-count FAIL in that run is already fixed: 37 -> 49.)
 2. Fuzz Grey a few seeds (command below), watch for invalid memory / hangs during the special.
 3. Small fix: clear `j->gp[i].on` for all i in `start_special` (grey.c). Leftover debris from a first
    MOONFALL would otherwise be drawn frozen during a second one in the same match.
