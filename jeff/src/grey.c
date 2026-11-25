@@ -559,11 +559,11 @@ static void fx_kind(Grey *j, int kind, float x, float y, float sc, float f) {
     case GF_FIREBURST: fx_at(j, GR_FIREBURST, x, y, sc * 0.7f, sc * 0.7f, 0, 2, 0, C_WHITE); break;
     case GF_SHATTER: fx_at(j, GR_SHATTER, x, y, sc, sc, 0, 2, 0, C_WHITE); break;
     case GF_ARC: fx_at(j, GR_ARC, x, y, f * sc, sc, 0, 2, 1, C_WHITE); break;
-    case GF_RING: fx_at(j, GR_RING, x, y, sc * 1.4f, sc * 1.4f, 0, 2, 1, C_WHITE); break;
+    case GF_RING: fx_at(j, GR_RING, x, y, sc * 1.1f, sc * 1.1f, 0, 2, 1, RGB(120, 190, 235)); break;
     case GF_BOLT: fx_at(j, GR_BOLT, x, y - 30 * sc, sc, sc, 0, 2, 1, C_WHITE); break;
     case GF_PILLAR: fx_at(j, GR_PILLAR, x, y, sc * 1.1f, sc * 1.1f, 0, 3, 0, C_WHITE); break;
     case GF_ERROR: fx_at(j, GR_ERROR, x, y, sc, sc, 0, 6, 0, C_WHITE); break;
-    case GF_SPAWN: fx_at(j, GR_SPAWN, x, y, sc, sc, 0, 2, 1, C_WHITE); break;
+    case GF_SPAWN: fx_at(j, GR_SPAWN, x, y, sc * 0.7f, sc * 0.75f, 0, 1, 1, RGB(110, 200, 240)); break;
     }
 }
 static void hit_at(CInstance *s, Grey *j, float x, float y, int mask, float xs, float ys, double dmg, double hf,
