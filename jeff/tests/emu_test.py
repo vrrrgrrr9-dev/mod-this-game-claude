@@ -219,7 +219,9 @@ def st_draw_ext():
     spr = sW(1)
     if spr not in sprites: calls.append(('BAD_SPRITE_DRAW', spr))
     calls.append(('draw', spr, round(S(0), 2), state['blend'], round(S(3), 2)))
-def st_draw_self(): calls.append(('draw_self',))
+def st_draw_self():
+    i = by_ptr.get(X(0))
+    calls.append(('draw_self', int(i.get('sprite_index')) if i and isinstance(i.get('sprite_index'), (int, float)) else None))
 def slot_owner(addr):
     for inst in list(insts.values()) + [glob]:
         for var, a in inst.slots.items():
@@ -374,7 +376,7 @@ call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
 check(menu.get('char_name') == 'Jeff', 'char_name = Jeff')
 check(menu.get('char_obj') == 685, 'char_obj = 685 (o_jeff)')
 check(menu.get('char_face') in sprites and sprites[menu.get('char_face')][0] == 'jeff_face.png', 'char_face = jeff_face.png sprite')
-check(len(sprites) == 49 and len(sounds) == 7, f'loaded {len(sprites)} sprites / {len(sounds)} sounds')
+check(len(sprites) == 127 and len(sounds) == 9, f'loaded {len(sprites)} sprites / {len(sounds)} sounds')
 check(any(c[0] == 'object_set_sprite' and c[1] == 685 for c in calls), 'object_set_sprite(o_jeff, preview)')
 calls.clear()
 rv_write(argrv, 7.0)
@@ -492,13 +494,16 @@ check(enemy.get('x') < 540 - 5, f'opponent dragged toward the hole (x 540 -> {en
 drawn = {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
 check({'jeff_jf_bh.png', 'jeff_jf_bhring_b.png', 'jeff_jf_bhring_f.png', 'jeff_jf_burst.png', 'jeff_jf_rock.png'} <= drawn, 'black hole core, flame disk (back/front), rocks, detonation drawn')
 
-print('[8] special: Bone Breaker')
+print('[8] special: Bone Breaker (shield + one skill tap; a full bar waits a moment for a double tap)')
 enemy.set('x', 520); jeff.set('x', 400); ectrl.set('plr_hp', 1900)
 calls.clear()
 ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
 call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
-check(ctrl.get('keyp_special') == 0, 'skill press consumed (no normal skill)')
-check(ctrl.get('plr_energy') == 0, 'full energy bar spent')
+check(ctrl.get('keyp_special') == 0, 'skill press held back (no normal skill)')
+check(ctrl.get('plr_energy') == 100, 'nothing spent while it waits for a second tap')
+for _ in range(17): call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+check(ctrl.get('plr_energy') == 0, 'one tap with the shield held: full energy bar spent once the window closed')
+calls.clear(); call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
 check(not any(c[0] == 'scr_plr_step' for c in calls), 'framework step paused during special')
 ctrl.set('key_defend', 0)
 gui_draws = 0
@@ -516,26 +521,164 @@ ctrl.set('keyp_special', 0)
 calls.clear(); call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
 check(any(c[0] == 'scr_plr_step' for c in calls), 'framework step resumes afterwards')
 
+def jstep(n=1, draw=False, gui=False, acc=None):
+    for _ in range(n):
+        if acc is not None: calls.clear()
+        call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+        if draw: call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+        if gui: call('gml_Object_o_jeff_Draw_64', jeff.ptr, jeff.ptr)
+        if acc is not None:
+            acc |= jdrawn()
+            acc |= {('part', sprites[c[1]][0]) for c in calls if c[0] == 'part' and c[1] in sprites}
+            acc |= {('self', sprites[c[1]][0]) for c in calls if c[0] == 'draw_self' and c[1] in sprites}
+            if any(c[0] == 'BAD_SPRITE_DRAW' for c in calls): acc.add('BAD_SPRITE_DRAW')
+def jdrawn(): return {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
+def tap(key, down=2, up=3, **kw):
+    ctrl.set(key, 1); jstep(down, **kw); ctrl.set(key, 0); jstep(up, **kw)
+enemy.set('sprite_index', spr_id['jeff_hurt.png']); enemy.set('image_index', 0)   # (any loaded sprite: the cinematics draw it)
+
+print('[8b] double-tap shield: blue -> red (the black form, sun sword and sun shield)')
+ctrl.set('keyp_special', 0); ctrl.set('key_defend', 0); ctrl.set('key_down', 0); jstep(2)
+seen = set()
+tap('key_defend', draw=True, acc=seen); tap('key_defend', draw=True, acc=seen)
+jstep(40, draw=True, acc=seen)
+check(sprites.get(jeff.get('spr_stand'), ('',))[0] == 'jeff_rstand.png' and sprites.get(jeff.get('spr_defend'), ('',))[0] == 'jeff_rdefend.png',
+      'red stance: spr_stand / spr_defend = rstand / rdefend')
+check(('part', 'jeff_d_power.png') in seen, 'the black form rises from his feet (drawn row by row over the old one)')
+check(sprites.get(ctrl.get('spr_face'), ('',))[0] == 'jeff_face_d.png', 'HUD portrait: the black form')
+want = {'jeff_js_sword.png', 'jeff_js_shield.png', 'jeff_jd_glow.png', 'jeff_js_swirl.png', 'jeff_js_fist.png'}
+check(want <= seen, f'sun sword, sun shield, glowing eyes, swirl and the band of fire drawn (missing: {sorted(want - seen)})')
+calls.clear(); jeff.set('sprite_index', spr_id['jeff_rstand.png']); jeff.set('image_index', 0)
+call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+ds = [sprites.get(c[1], ('?',))[0] for c in calls if c[0] == 'draw_self']
+check(ds == ['jeff_d_rstand.png'], f'the body is drawn with its black copy: {ds}')
+check(jeff.get('sprite_index') == spr_id['jeff_rstand.png'], 'sprite_index restored after drawing (game logic sees the normal sprite)')
+jeff.set('sprite_index', spr_id['jeff_hurt.png']); calls.clear(); call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+check([sprites.get(c[1], ('?',))[0] for c in calls if c[0] == 'draw_self'] == ['jeff_d_hurt.png'], 'every animation has its black copy (hurt)')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+
+print('[8c] red combos: sun sword (A) and sun shield (B)')
+for start, label, want in ((1, 'A', ['jeff_rs1.png', 'jeff_rs2.png', 'jeff_rs3.png', 'jeff_rs4.png', 'jeff_rs5.png']),
+                           (50, 'B', ['jeff_rb1.png', 'jeff_rb2.png', 'jeff_rb3.png', 'jeff_rb4.png'])):
+    calls.clear(); jeff.set('combo_next', start)
+    call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
+    seq = []
+    for _ in range(len(want)):
+        cn = [c for c in calls if c[0] == 'scr_combo_normal']
+        seq.append(sprites[int(cn[-1][2][0][1])][0] if cn else sprites.get(int(jeff.get('sprite_index')), ('',))[0])
+        calls.clear(); jeff.set('combo_nextcombo', 1)
+        call('gml_Object_o_jeff_Alarm_2', jeff.ptr, jeff.ptr)
+    check(seq == want, f'attack {label}: {seq}')
+    check(ctrl.get('is_attacking') == 0 and jeff.get('combo_next') == -1, f'attack {label}: the finisher ends the combo')
+calls.clear(); jeff.set('sprite_index', spr_id['jeff_rs1.png']); jeff.set('image_index', 1)
+call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+check({'jeff_js_trail.png', 'jeff_js_glow.png'} <= jdrawn(), 'the blade blazes on the slashing frame')
+jeff.set('sprite_index', spr_id['jeff_rstand.png']); jeff.set('image_index', 0)
+
+print('[8d] red skills: Solar Flare (skill 1), Corona (skill 2)')
+seen = set(); jeff.set('x', 400); jeff.set('image_xscale', 1); enemy.set('x', 520)
+calls.clear(); jeff.set('combo_next', 100); call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
+hb = []
+for _ in range(90):
+    calls.clear(); jstep(1, draw=True)
+    hb += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; seen |= jdrawn()
+check(len(hb) >= 4 and min(c[2] for c in hb) > 420, f'Solar Flare: the crescent travels forward, {len(hb)} hits')
+check({'jeff_js_wave.png', 'jeff_js_aura.png'} <= seen, 'crescent of sun fire + sun aura drawn')
+seen = set(); calls.clear(); jeff.set('combo_next', 110); call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
+hb = []
+for _ in range(60):
+    calls.clear(); jstep(1, draw=True)
+    hb += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; seen |= jdrawn()
+check(len(hb) >= 2 and min(c[2] for c in hb) < 400 < max(c[2] for c in hb), f'Corona: blasts both sides ({len(hb)} hitboxes)')
+check({'jeff_js_burst.png', 'jeff_cin_ring.png'} <= seen, 'the flare and its shock rings drawn')
+
+print('[8e] double-tap skill (full bar): RED BLACK HOLE cinematic, K.O.')
+ectrl.set('plr_hp', 1900); ctrl.set('plr_energy', 100); enemy.set('x', 520); jstep(20)
+ctrl.set('keyp_special', 1); jstep(1); jstep(3); ctrl.set('keyp_special', 1); jstep(1); ctrl.set('keyp_special', 0)
+check(ctrl.get('plr_energy') == 0, 'bar spent on the second tap')
+check(ctrl.get('can_gethurt') == 0, 'untouchable during the cinematic')
+check(ectrl.get('plr_hp') == 1900, 'no K.O. yet')
+seen = set(); hp_at = None
+for t in range(CIN_RED := 170):
+    jstep(1, draw=True, gui=True, acc=seen)
+    if t == 120: hp_at = ectrl.get('plr_hp')
+check({'jeff_cin_bg.png', 'jeff_rbh_core.png', 'jeff_rbh_disk_b.png', 'jeff_rbh_disk_f.png', 'jeff_d_meteor.png', 'jeff_d_pose.png',
+       'jeff_js_burst.png', 'jeff_cin_ring.png', 'jeff_jf_rock.png', 'jeff_hurt.png'} <= seen,
+      'cinematic: red sky, black hole (core + disk), the black form, the opponent pulled in, the burst')
+check(hp_at == 1900 and ectrl.get('plr_hp') == 0, f'the K.O. lands as the fight comes back (HP {hp_at} -> {ectrl.get("plr_hp")})')
+check(ctrl.get('can_gethurt') == 1, 'Jeff vulnerable again')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+calls.clear(); jstep(1)
+check(any(c[0] == 'scr_plr_step' for c in calls), 'framework step resumes afterwards')
+
+print('[8f] double-tap shield + double-tap skill together: HOLLOW PURPLE cinematic, K.O.')
+ectrl.set('plr_hp', 1900); ctrl.set('plr_energy', 100); enemy.set('x', 520); jstep(20)
+ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); jstep(1); ctrl.set('keyp_special', 0); jstep(1)
+ctrl.set('key_defend', 0); jstep(3)
+ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); jstep(1); ctrl.set('keyp_special', 0); jstep(1); ctrl.set('key_defend', 0)
+check(ctrl.get('plr_energy') == 0, 'bar spent')
+seen = set()
+for t in range(200): jstep(1, draw=True, gui=True, acc=seen)
+check({'jeff_cin_bg.png', 'jeff_hp_orb_b.png', 'jeff_hp_orb_r.png', 'jeff_hp_orb_p.png', 'jeff_hp_nuke.png', 'jeff_d_purple.png', 'jeff_d_pose.png'} <= seen,
+      'cinematic: blue + red orbs, merged into purple, flicked, the nuclear blast, the pose')
+check(ectrl.get('plr_hp') == 0 and ctrl.get('can_gethurt') == 1, 'K.O., Jeff vulnerable again')
+check(sprites.get(jeff.get('spr_stand'), ('',))[0] == 'jeff_rstand.png', 'the shield double tap did not also switch his power')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+
+print('[8g] one skill tap with a full bar reaches the game after the window; double-tap shield back to blue')
+ctrl.set('plr_energy', 100); jstep(20)
+ctrl.set('keyp_special', 1); ctrl.set('key_down', 1); jstep(1); ctrl.set('keyp_special', 0); ctrl.set('key_down', 0)
+jstep(16)
+check(ctrl.get('keyp_special') == 0, 'held back for the tap window')
+jstep(1)
+check(ctrl.get('keyp_special') == 1 and ctrl.get('key_down') == 1, 'then handed to the game with down still held (skill 2)')
+check(ctrl.get('plr_energy') == 100, 'no finisher')
+ctrl.set('keyp_special', 0); ctrl.set('key_down', 0)
+seen = set()
+tap('key_defend', draw=True, acc=seen); tap('key_defend', draw=True, acc=seen); jstep(40, draw=True, acc=seen)
+check(sprites.get(jeff.get('spr_stand'), ('',))[0] == 'jeff_stand.png', 'back to blue: spr_stand = stand')
+check(sprites.get(ctrl.get('spr_face'), ('',))[0] == 'jeff_face.png', 'HUD portrait back to white Jeff')
+check(('part', 'jeff_power.png') in seen and 'jeff_jf_aura.png' in seen, 'the white form rises back, blue fire returns')
+calls.clear(); jeff.set('sprite_index', spr_id['jeff_stand.png']); call('gml_Object_o_jeff_Draw_0', jeff.ptr, jeff.ptr)
+check([sprites.get(c[1], ('?',))[0] for c in calls if c[0] == 'draw_self'] == ['jeff_stand.png'] and 'jeff_js_sword.png' not in jdrawn(),
+      'white body again, no sword')
+
 print('[9] special without energy does nothing')
 ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 40); ectrl.set('plr_hp', 1500)
 call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
 check(ctrl.get('plr_energy') == 40 and ectrl.get('plr_hp') == 1500, 'no energy spent, enemy untouched')
 
-print('[9b] Jeff homes in on the opponent; as the CPU he uses the Bone Breaker')
+print('[9b] Jeff homes in on the opponent; as the CPU he uses one of his three finishers')
 ctrl.set('key_defend', 0); ctrl.set('keyp_special', 0); ctrl.set('plr_energy', 40)
-jeff.set('x', 400); jeff.set('image_xscale', 1); jeff.set('hspeed', 0); enemy.set('x', 500); ectrl.set('plr_hp', 1500)
+jeff.set('x', 400); jeff.set('image_xscale', 1); jeff.set('hspeed', 0); enemy.set('x', 480); ectrl.set('plr_hp', 1500)
 calls.clear(); jeff.set('combo_next', 1)
 call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
 call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
-check(jeff.get('hspeed') > 5, f'jab lunges toward the opponent 100 px away (hspeed {jeff.get("hspeed"):.1f})')
+check(5 < jeff.get('hspeed') < 8, f'jab steps in toward the opponent 80 px away, no long dash (hspeed {jeff.get("hspeed"):.1f})')
 for _ in range(6): call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
 jeff.set('combo_next', -1); call('gml_Object_o_jeff_Alarm_2', jeff.ptr, jeff.ptr)
-ctrl.set('plr_controller', 2); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
-calls.clear(); call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
-check(ctrl.get('plr_energy') == 0, 'CPU Jeff fired the Bone Breaker without holding shield')
-for t in range(14 + 156 + 40):
-    call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
-check(ectrl.get('plr_hp') == 0 and ctrl.get('can_gethurt') == 1, 'it lands on the player')
+jeff.set('x', 400); jeff.set('hspeed', 0); enemy.set('x', 560)
+calls.clear(); jeff.set('combo_next', 1)
+call('gml_Object_o_jeff_Alarm_3', jeff.ptr, jeff.ptr)
+call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+check(abs(jeff.get('hspeed')) < 0.5, f'opponent 160 px away: no lunge at all (hspeed {jeff.get("hspeed"):.1f})')
+for _ in range(6): call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+jeff.set('combo_next', -1); call('gml_Object_o_jeff_Alarm_2', jeff.ptr, jeff.ptr)
+enemy.set('x', 480)
+picked = set()
+for trial in range(6):
+    ectrl.set('plr_hp', 1500)
+    ctrl.set('plr_controller', 2); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
+    calls.clear(); call('gml_Object_o_jeff_Step_0', jeff.ptr, jeff.ptr)
+    ctrl.set('keyp_special', 0)
+    if ctrl.get('plr_energy') != 0:
+        check(False, 'CPU Jeff fired a finisher without holding shield'); break
+    gui = set()
+    for t in range(14 + 156 + 40): jstep(1, gui=True, acc=gui)
+    picked.add('purple' if 'jeff_hp_nuke.png' in gui else 'red hole' if 'jeff_rbh_core.png' in gui else 'bone breaker' if 'jeff_cut_a.png' in gui else '?')
+    if not (ectrl.get('plr_hp') == 0 and ctrl.get('can_gethurt') == 1):
+        check(False, f'CPU finisher {picked} lands on the player'); break
+check(len(picked) >= 2 and '?' not in picked, f'the CPU mixes its finishers: {sorted(picked)}')
 ctrl.set('plr_controller', 0); ctrl.set('keyp_special', 0)
 
 print('[10] destroy')

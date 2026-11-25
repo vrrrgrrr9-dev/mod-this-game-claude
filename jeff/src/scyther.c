@@ -402,6 +402,13 @@ static Scy *slot(CInstance *s, bool create) {
     return &g_scy[3];
 }
 
+/* for Jeff's cinematics, which draw the opponent's sprite: the scale one of our sprites is drawn at */
+float scyther_sprite_scale(int sprite_id) {
+    if (!g_scy_loaded || sprite_id < 0) return 1.0f;
+    for (int a = 0; a < SC_COUNT; a++) if (g_scy_spr[a] == sprite_id) return k_scy_sprites[a].half ? 0.5f : 1.0f;
+    return 1.0f;
+}
+
 /* which of our body animations is showing (-1 = none) */
 static int body_anim(CInstance *s) {
     int sp = (int)sget(s, &g_VAR_sprite_index);
@@ -762,22 +769,23 @@ static CInstance *nearest_enemy(CInstance *s, int *out_id, float maxdx, float ma
 static void start_skill1(CInstance *s, Scy *j);
 static void start_skill2(CInstance *s, Scy *j);
 
-/* a short homing lunge so the cut connects: turns to an opponent right behind him and covers the
-   gap to `reach` over `frames` frames (applied on top of the move's own motion) */
+/* a small step-in so the cut connects: only for an opponent close in front (turns only when he is
+   right behind), at most 45 px spread over >= 5 frames, on top of the move's own motion */
 static void home(CInstance *s, Scy *j, float reach, int frames) {
     int tid = -1;
     j->home_t = 0;
-    CInstance *e = nearest_enemy(s, &tid, 190, 80);
+    CInstance *e = nearest_enemy(s, &tid, reach + 60, 60);
     if (!e) return;
     float dx = (float)sget(e, &g_VAR_x) - sx_(s);
     if (dx * j->dir < 0) {
-        if (fabsf_(dx) > 70) return;
+        if (fabsf_(dx) > 30) return;                   /* turns only when he is right behind */
         j->dir = -j->dir;
         bset(s, &g_VAR_image_xscale, j->dir);
     }
     float gap = fabsf_(dx) - reach;
     if (gap <= 1) return;
-    if (gap > 140) gap = 140;
+    if (gap > 45) gap = 45;                            /* a step in, never a long dash */
+    if (frames < 5) frames = 5;
     j->home_v = gap / frames; j->home_t = frames;
 }
 

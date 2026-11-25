@@ -12,6 +12,17 @@
  *  special (shield + skill together): Bone Breaker - grabs the nearest enemy, X-ray cutscene that
  *                                     breaks their bones, then their HP is set to 0
  *
+ *  double-tap shield: switches his power, blue (dark flame) <-> red (the sun): he turns black from the
+ *             feet up (the user's "dark Jeff": black body, glowing white eyes ringed in yellow, a white
+ *             chest tag) - every body animation has a black copy that is swapped in when drawing
+ *  red power: a sun sword and a sun shield - attack A sword (slash, rising slash, thrust, spin slash,
+ *             solar cleave), attack B shield (bash, shield uppercut, shield charge, sun slam), skill 1
+ *             Solar Flare (a crescent of sun fire), skill 2 Corona (the sun flares round him)
+ *  double-tap skill (full bar):  RED BLACK HOLE cinematic - the opponent is pulled in and crushed: K.O.
+ *  double-tap shield + double-tap skill together (full bar): HOLLOW PURPLE cinematic - he merges his
+ *             red and blue, flicks it, a purple nuclear blast, he strikes a pose: K.O.
+ *  (with a full bar a skill tap waits ~1/4 s to see whether it is a double tap)
+ *
  * The flame: blue fire with darkness flowing inside it (pixel art, art/flame.py), drawn on whichever
  * fist / foot is "hot" in the current frame (per-frame table from the art build).
  *
@@ -58,8 +69,23 @@
 #define RGB(r, g, b) ((int)((r) | ((g) << 8) | ((b) << 16)))   /* GameMaker colours are BGR */
 #define C_FLAME  RGB(80, 170, 255)
 #define C_RED    RGB(255, 60, 60)
+#define C_SUN    RGB(255, 150, 40)
+#define C_PURPLE RGB(200, 110, 255)
+#define C_EYE    RGB(236, 246, 44)
+#define JF_EYES  1       /* JeffFrame.flags: eyes open, front arm drawn over the body, back arm over */
+#define JF_FOVER 2
+#define JF_BOVER 4
+#define SWORD_K   0.8f    /* the sun sword: 64 px sprite, grip at (6,10) -> 45 px blade at this scale */
+#define SWORD_LEN 45.0f   /* (its angle per frame is JeffFrame.fa, from art/anims.py SWORD) */
+#define SHIELD_K  0.55f
 
-enum { MOVE_NONE, MOVE_SKILL1, MOVE_SKILL2, MOVE_SPECIAL, MOVE_FLURRY };
+enum { MOVE_NONE, MOVE_SKILL1, MOVE_SKILL2, MOVE_SPECIAL, MOVE_FLURRY, MOVE_SWITCH, MOVE_CIN, MOVE_RSKILL1, MOVE_RSKILL2 };
+enum { CIN_NONE, CIN_REDHOLE, CIN_PURPLE };
+#define CIN_RED_DUR 170
+#define CIN_RED_KO 118
+#define CIN_PUR_DUR 200
+#define CIN_PUR_KO 112
+#define TAP_WINDOW 16
 
 #define SP_DASH   14      /* frames of the dash toward the victim */
 #define SP_CUT    156     /* cutscene length (frames) */
@@ -68,7 +94,7 @@ enum { MOVE_NONE, MOVE_SKILL1, MOVE_SKILL2, MOVE_SPECIAL, MOVE_FLURRY };
 #define N_MET 14
 #define N_JFX 12
 typedef struct { int on, t; float x, y, vx, vy; } Meteor;
-typedef struct { int on, t, a, tpf, n, add; float x, y, xs, ys, rot; } JFx;
+typedef struct { int on, t, a, tpf, n, add, col; float x, y, xs, ys, rot; } JFx;
 
 typedef struct {
     CInstance *inst;
@@ -89,6 +115,14 @@ typedef struct {
     int aura_t;
     int fail_t;
     int home_t; float home_v, home_dir;   /* homing lunge at the start of a punch / kick */
+    /* power: 0 blue (dark flame), 1 red (the sun) */
+    int power;
+    /* input: shield / skill taps */
+    int prev_def, def_t1, def_t2, sk_pending, sk_t1, sk_pending_def, sk_pending_down, sw_pending, sw_pending_t, sw_cool;
+    /* cinematics */
+    int cin; int cin_spr; float cin_img, cin_vk; int cin_done;
+    /* red skills */
+    int wave_on, wave_t, wave_hits; float wave_x, wave_y, wave_dir;
 } Jeff;
 
 static Jeff g_jeff[8];
@@ -410,12 +444,17 @@ static void fx_at(Jeff *j, int a, float x, float y, float xs, float ys, float ro
     int best = 0;
     for (int i = 0; i < N_JFX; i++) { if (!j->fx[i].on) { best = i; break; } if (j->fx[i].t > j->fx[best].t) best = i; }
     JFx *f = &j->fx[best];
-    f->on = 1; f->t = 0; f->a = a; f->tpf = tpf; f->n = k_sprites[a].frames; f->add = add;
+    f->on = 1; f->t = 0; f->a = a; f->tpf = tpf; f->n = k_sprites[a].frames; f->add = add; f->col = C_WHITE;
     f->x = x; f->y = y; f->xs = xs; f->ys = ys; f->rot = rot;
 }
+/* the same, tinted (the grey shock rings take the colour of the power) */
+static void fx_tint(Jeff *j, int a, float x, float y, float xs, float ys, int tpf, int col) {
+    fx_at(j, a, x, y, xs, ys, 0, tpf, 0);
+    for (int i = 0; i < N_JFX; i++) if (j->fx[i].on && j->fx[i].t == 0 && j->fx[i].a == a && j->fx[i].x == x) j->fx[i].col = col;
+}
 
-/* a short homing lunge so the blow connects (the CPU attacks from ~50 px away): turns to an
-   opponent right behind him and closes the gap over 5 frames, on top of the move's own push */
+/* a small step-in so the blow connects (the CPU attacks from ~50 px away): only for an opponent
+   close in front, at most 40 px over 6 frames, on top of the move's own push */
 static void jeff_home(CInstance *s, Jeff *j) {
     int tid = -1;
     j->home_t = 0;
@@ -424,28 +463,35 @@ static void jeff_home(CInstance *s, Jeff *j) {
     if (!e) return;
     float dx = (float)(sget(e, &g_VAR_x) - sget(s, &g_VAR_x)), dy = (float)(sget(e, &g_VAR_y) - sget(s, &g_VAR_y));
     float adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    if (adx > 170 || ady > 70) return;
+    if (adx > 90 || ady > 60) return;                  /* only an opponent close in front: no long dashes */
     float dir = facing(s);
     if (dx * dir < 0) {
-        if (adx > 70) return;
+        if (adx > 30) return;                          /* turns only when he is right behind */
         dir = -dir;
         bset(s, &g_VAR_image_xscale, dir);
     }
-    float gap = adx - 26;
+    float gap = adx - 30;
     if (gap <= 1) return;
-    if (gap > 120) gap = 120;
-    j->home_dir = dir; j->home_v = gap / 5; j->home_t = 5;
+    if (gap > 40) gap = 40;
+    j->home_dir = dir; j->home_v = gap / 6; j->home_t = 6;
 }
 
+static int red_combo(CInstance *s, CInstance *o, Jeff *j, int step, double dmg);
+static void flip_power(CInstance *s, Jeff *j);
 static void jeff_combo(CInstance *s, CInstance *o, int step) {
     Jeff *j = slot(s, true);
     if (j->move == MOVE_FLURRY) j->move = MOVE_NONE;       /* the next blow takes over */
+    if (j->move == MOVE_SWITCH) {                          /* attacking mid-transformation finishes it */
+        if (j->t < 12) flip_power(s, j);
+        j->move = MOVE_NONE;
+    }
     if ((step >= 1 && step <= 5) || (step >= 50 && step <= 53) || step == 10 || step == 60) jeff_home(s, j);
     bset(s, &g_VAR_image_speed, 0.3);
     iset_b(s, &g_VAR_combo_nextcombo, false);
     double dmg = parent_ok(s) ? pget(s, &g_VAR_plr_dmg) : 40;
     j->dir = facing(s);
     float x = sx_(s), y = sy_(s), d = j->dir;
+    if (j->power && red_combo(s, o, j, step, dmg)) return;
     switch (step) {
     /* --- attack A: dark flame punches ------------------------------------------------- */
     case 1:                                            /* JAB */
@@ -736,19 +782,323 @@ static void jfx_step(Jeff *j) {
 static void limb_step(CInstance *s, Jeff *j) {
     int anim = -1;
     const JeffFrame *m = jeff_frame(s, &anim);
-    if (!m || !m->hot) { j->last_hot = -1; return; }
+    if (!m || !(m->hot & 7)) { j->last_hot = -1; return; }
     int key = (int)(m - k_jeff_meta);
     if (key == j->last_hot) return;
     j->last_hot = key;
     float x = sx_(s), y = sy_(s), xs = facing(s);
     float px = x + xs * (m->hot & 4 ? m->kx : m->hot & 1 ? m->fx : m->bx);
     float py = y + (m->hot & 4 ? m->ky : m->hot & 1 ? m->fy : m->by);
-    fx_at(j, A_JF_BURST, px + xs * 6, py, 0.4f, 0.4f, 0, 1, 0);
+    if (j->power && !(m->hot & 4) && (m->hot & 1)) {   /* the sun sword: sparks fly off the blade */
+        float an = m->fa * 0.0174533f;
+        px += xs * SWORD_LEN * 0.7f * cosf_(an); py += SWORD_LEN * 0.7f * sinf_(an);
+    }
+    fx_at(j, j->power ? A_JS_BURST : A_JF_BURST, px + xs * 6, py, 0.4f, 0.4f, 0, 1, 0);
     if (anim == A_KICK4 && m->ky > -12) {             /* the axe kick's heel hits the ground */
         fx_at(j, A_JF_CRATER, px, y, 0.8f, 0.8f, 0, 2, 0);
         camera_shake(2);
     }
+    if (anim == A_RB4 && m->by > -16) {               /* the sun slam: the shield hits the ground */
+        fx_at(j, A_JS_BURST, px, y - 8, 0.9f, 0.7f, 0, 1, 0);
+        fx_tint(j, A_CIN_RING, px, y, 0.45f, 0.45f, 2, C_SUN);
+        camera_shake(3);
+    }
     play_custom(s, S_FLAME, 0.9 + frand(0, 0.3f));
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* red power: the sun                                                                          */
+/* ------------------------------------------------------------------------------------------ */
+static void pin_target(CInstance *s, Jeff *j);
+static void release_target(CInstance *s, Jeff *j);
+static void start_special(CInstance *s, Jeff *j);
+static bool is_cpu(CInstance *s) { return parent_ok(s) && pget(s, &g_VAR_plr_controller) == 2; }
+
+static void set_power_sprites(CInstance *s, Jeff *j) {
+    iset(s, &g_VAR_spr_stand, g_jeff_spr[j->power ? A_RSTAND : A_STAND]);
+    iset(s, &g_VAR_spr_defend, g_jeff_spr[j->power ? A_RDEFEND : A_DEFEND]);
+}
+static void flip_power(CInstance *s, Jeff *j) {
+    j->power ^= 1;
+    set_power_sprites(s, j);
+    int face = g_jeff_spr[j->power ? A_FACE_D : A_FACE];   /* the HUD portrait changes with him */
+    if (face >= 0 && parent_ok(s)) pset(s, &g_VAR_spr_face, face);
+    fx_at(j, j->power ? A_JS_BURST : A_JF_BURST, sx_(s), sy_(s) - 30, 1.1f, 1.1f, 0, 1, 0);
+    camera_shake(2);
+}
+/* the transformation: blue fire spins up round him, turns red and bursts (or back again) */
+static void start_switch(CInstance *s, Jeff *j) {
+    j->move = MOVE_SWITCH; j->t = 0;
+    j->sw_cool = is_cpu(s) ? 600 : 30;
+    show(s, A_POWER, 0);
+    bset(s, &g_VAR_hspeed, 0);
+    if (j->power) fx_at(j, A_JF_AURA, sx_(s), sy_(s) + 2, 1, 1, 0, 3, 0);     /* the sun goes out, blue fire returns */
+    else fx_at(j, A_JS_SWIRL, sx_(s), sy_(s) + 2, 1, 1, 0, 2, 0);             /* blue fire spins up and turns to sun */
+    play_custom(s, S_POWER, j->power ? 0.85 : 1.0);
+}
+static void switch_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    show(s, A_POWER, (float)(t < 10 ? 0 : t < 18 ? 1 : 2));
+    bset(s, &g_VAR_hspeed, 0);
+    if (t == 12) flip_power(s, j);
+    if (t >= 26) { j->move = MOVE_NONE; bset(s, &g_VAR_image_speed, 0.3); }
+}
+
+static void start_rskill1(CInstance *s, Jeff *j);
+static void start_rskill2(CInstance *s, Jeff *j);
+/* the red combos: attack A = the sun sword, attack B = the sun shield (1 if handled) */
+static int red_combo(CInstance *s, CInstance *o, Jeff *j, int step, double dmg) {
+    float x = sx_(s), y = sy_(s), d = j->dir;
+    switch (step) {
+    case 1:                                            /* slash */
+        iset(s, &g_VAR_combo_next, 2);
+        combo_normal(s, o, g_jeff_spr[A_RS1], SPR_MASK32, 26, -30, 3, 4, -3, dmg * 0.95, 6, false, 13, 1, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_ARC, x + d * 8, y - 30, d, 0.8f, d * -10, 2, 0);
+        play(s, SND_WOOSH2, 1.05);
+        return 1;
+    case 2:                                            /* rising slash */
+        iset(s, &g_VAR_combo_next, 3);
+        combo_normal(s, o, g_jeff_spr[A_RS2], SPR_MASK32, 24, -40, 2, 3, -6, dmg * 1.0, 6, false, 13, 1, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_ARC, x + d * 10, y - 34, d, 0.8f, d * -70, 2, 0);
+        play(s, SND_WOOSH3, 1.1);
+        return 1;
+    case 3:                                            /* thrust */
+        iset(s, &g_VAR_combo_next, 4);
+        combo_normal(s, o, g_jeff_spr[A_RS3], SPR_MASK32, 34, -28, 5, 6, -2, dmg * 1.15, 6, false, 15, 1, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_TRAIL, x + d * 58, y - 30, d * 0.9f, 0.9f, 0, 1, 0);
+        play(s, SND_WOOSH1, 0.9);
+        return 1;
+    case 4:                                            /* spin slash */
+        iset(s, &g_VAR_combo_next, 5);
+        combo_normal(s, o, g_jeff_spr[A_RS4], SPR_MASK32, 26, -30, 3, 5, -4, dmg * 1.1, 7, false, 16, 1, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_ARC, x, y - 30, -d, 1.1f, d * 30, 2, 0);
+        fx_at(j, A_JS_ARC, x + d * 6, y - 30, d, 1.0f, d * -20, 2, 0);
+        play(s, SND_WOOSH3, 0.95);
+        return 1;
+    case 5:                                            /* solar cleave: the sun comes down (knockdown) */
+        iset(s, &g_VAR_combo_next, -1);
+        combo_normal(s, o, g_jeff_spr[A_RS5], SPR_MASK64, 26, -30, 2, 8, -10, dmg * 1.7, 8, true, 26, 2, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_ARC, x + d * 12, y - 40, d, 1.2f, d * -80, 2, 0);
+        play(s, SND_STRONG2, 0.9);
+        return 1;
+    case 50:                                           /* shield bash */
+        iset(s, &g_VAR_combo_next, 51);
+        combo_normal(s, o, g_jeff_spr[A_RB1], SPR_MASK32, 22, -28, 5, 7, -3, dmg * 0.95, 6, false, 14, 1, SPR_HIT_3, C_SUN);
+        play(s, SND_STRONG1, 1.1);
+        return 1;
+    case 51:                                           /* shield uppercut - launches */
+        iset(s, &g_VAR_combo_next, 52);
+        combo_normal(s, o, g_jeff_spr[A_RB2], SPR_MASK32, 20, -36, 2, 3, -9, dmg * 1.05, 6, false, 15, 1, SPR_HIT_3, C_SUN);
+        play(s, SND_WOOSH2, 0.9);
+        return 1;
+    case 52:                                           /* shield charge */
+        iset(s, &g_VAR_combo_next, 53);
+        combo_normal(s, o, g_jeff_spr[A_RB3], SPR_MASK32, 24, -28, 8, 8, -3, dmg * 1.1, 8, false, 18, 1, SPR_HIT_3, C_SUN);
+        fx_at(j, A_JS_TRAIL, x + d * 30, y - 28, d, 1.2f, 0, 1, 0);
+        play(s, SND_WOOSH3, 0.8);
+        return 1;
+    case 53:                                           /* sun slam: shield driven into the ground (knockdown) */
+        iset(s, &g_VAR_combo_next, -1);
+        combo_normal(s, o, g_jeff_spr[A_RB4], SPR_MASK64, 20, -12, 2, 6, -7, dmg * 1.6, 8, true, 28, 2, SPR_HIT_3, C_SUN);
+        play(s, SND_STRONG2, 0.8);
+        return 1;
+    case 100: start_rskill1(s, j); return 1;
+    case 110: start_rskill2(s, j); return 1;
+    }
+    return 0;
+}
+
+/* red skill 1 - Solar Flare: the sword sends a crescent of sun fire across the screen */
+static void start_rskill1(CInstance *s, Jeff *j) {
+    j->move = MOVE_RSKILL1; j->t = 0; j->dir = facing(s);
+    iset(s, &g_VAR_combo_next, -1);
+    bset_i(s, &g_VAR_alarm, 2, 48);
+    show(s, A_METEOR, 1);
+    bset(s, &g_VAR_hspeed, 0);
+    play(s, SND_MAGICSTUN_CAST, 1.1);
+}
+static void rskill1_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    show(s, A_METEOR, (float)(t < 8 ? 1 : t < 18 ? 2 : 3));
+    bset(s, &g_VAR_hspeed, 0);
+    if (t == 18) {
+        j->wave_on = 1; j->wave_t = 0; j->wave_hits = 0; j->wave_dir = j->dir;
+        j->wave_x = sx_(s) + j->dir * 30; j->wave_y = sy_(s) - 34;
+        play_custom(s, S_FLAME, 0.8);
+        camera_shake(1);
+    }
+    if (t >= 48) { j->move = MOVE_NONE; bset(s, &g_VAR_image_speed, 0.3); }
+}
+static void wave_step(CInstance *s, Jeff *j) {
+    if (!j->wave_on) return;
+    int t = ++j->wave_t;
+    j->wave_x += j->wave_dir * 7.5f;
+    if (t % 6 == 3 && j->wave_hits < 5 && parent_ok(s)) {
+        Hit h = { pget(s, &g_VAR_plr_dmg) * 0.32, j->wave_dir * 3.0, -2, 12, 4, 1.2, 2.0, SPR_MASK32, 1, 0, 1, 0, SPR_HIT_3, C_SUN, 1 };
+        spawn_hit(s, j->wave_x, j->wave_y, &h);
+        j->wave_hits++;
+    }
+    if (t >= 40) { fx_at(j, A_JS_BURST, j->wave_x, j->wave_y, 0.8f, 0.8f, 0, 1, 0); j->wave_on = 0; }
+}
+/* red skill 2 - Corona: the sun on his shield flares and blasts everything around him away */
+static void start_rskill2(CInstance *s, Jeff *j) {
+    j->move = MOVE_RSKILL2; j->t = 0; j->dir = facing(s);
+    iset(s, &g_VAR_combo_next, -1);
+    bset_i(s, &g_VAR_alarm, 2, 46);
+    show(s, A_ABYSS, 0);
+    bset(s, &g_VAR_hspeed, 0);
+    play(s, SND_MAGIC3, 1.2);
+}
+static void rskill2_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    show(s, A_ABYSS, (float)(t < 8 ? 0 : t < 30 ? 1 + ((t / 4) % 2) : 3));
+    bset(s, &g_VAR_hspeed, 0);
+    float x = sx_(s), y = sy_(s);
+    if (t == 12) {
+        fx_at(j, A_JS_BURST, x, y - 30, 1.7f, 1.7f, 0, 1, 0);
+        if (parent_ok(s)) {
+            for (int k = -1; k <= 1; k += 2) {
+                Hit h = { pget(s, &g_VAR_plr_dmg) * 1.2, k * 8.0, -7.0, 28, 6, 1.6, 1.8, SPR_MASK64, 1, 1, 1, 1, SPR_HIT_3, C_SUN, 2 };
+                spawn_hit(s, x + k * 34, y - 30, &h);
+            }
+        }
+        camera_shake(3);
+        play(s, SND_EXPLOSION_MEGA, 1.2);
+    }
+    if (t == 12 || t == 16 || t == 20) fx_tint(j, A_CIN_RING, x, y, 0.6f + (t - 12) * 0.08f, 0.6f, 2, C_SUN);
+    if (t >= 46) { j->move = MOVE_NONE; bset(s, &g_VAR_image_speed, 0.3); }
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* cinematics: RED BLACK HOLE (double-tap skill) and HOLLOW PURPLE (double-tap shield + skill) */
+/* ------------------------------------------------------------------------------------------ */
+static double bar_need(CInstance *s) {
+    double emax = pget(s, &g_VAR_plr_maxenergy);
+    return emax > 0 ? (emax < 100 ? emax : 100) : 100;
+}
+static bool full_bar(CInstance *s) { return parent_ok(s) && pget(s, &g_VAR_plr_energy) + 0.001 >= bar_need(s); }
+
+float scyther_sprite_scale(int sprite_id);
+static void start_cinematic(CInstance *s, Jeff *j, int kind) {
+    int tid = -1;
+    CInstance *t = find_target(s, &tid);
+    pset_b(s, &g_VAR_keyp_special, false);
+    if (!full_bar(s) || !t) { j->fail_t = 24; play(s, SND_WOOSH3, 0.6); return; }
+    pset(s, &g_VAR_plr_energy, pget(s, &g_VAR_plr_energy) - bar_need(s));
+    j->move = MOVE_CIN; j->cin = kind; j->t = 0; j->cin_done = 0;
+    j->tgt_id = tid; j->tgt_x = (float)sget(t, &g_VAR_x); j->tgt_y = (float)sget(t, &g_VAR_y); j->start_x = sx_(s);
+    j->dir = j->tgt_x >= sx_(s) ? 1.0f : -1.0f;
+    bset(s, &g_VAR_image_xscale, j->dir);
+    j->cin_spr = (int)sget(t, &g_VAR_sprite_index); j->cin_img = (float)sget(t, &g_VAR_image_index);
+    j->cin_vk = scyther_sprite_scale(j->cin_spr);         /* Scyther's sprites are 2x density */
+    pset_b(s, &g_VAR_is_attacking, true);
+    pset_b(s, &g_VAR_can_gethurt, false);               /* untouchable during the cinematic */
+    iset(s, &g_VAR_combo_next, -1);
+    bset_i(s, &g_VAR_alarm, 2, -1);
+    j->old_depth = sget(s, &g_VAR_depth); j->depth_saved = 1;
+    bset(s, &g_VAR_depth, -15000);                       /* the GUI cinematic draws over the HUD */
+    bset(s, &g_VAR_hspeed, 0); bset(s, &g_VAR_vspeed, 0);
+    show(s, kind == CIN_PURPLE ? A_PURPLE : A_METEOR, kind == CIN_PURPLE ? 0 : 1);
+    play(s, SND_SUSPENSE, 1.0);
+    play_custom(s, kind == CIN_PURPLE ? S_POWER : S_HOLE, kind == CIN_PURPLE ? 0.8 : 0.7);
+}
+/* the blow that ends it: K.O. */
+static void cin_finish(CInstance *s, Jeff *j) {
+    CInstance *c = j->tgt_id >= 0 ? YYGML_FindInstance(j->tgt_id) : 0;
+    release_target(s, j);
+    j->cin_done = 1;
+    if (!c) return;
+    float cx = (float)sget(c, &g_VAR_x), cy = (float)sget(c, &g_VAR_y);
+    Hit h = { 999999, j->dir * 12.0, -10.0, 40, 6, 2.0, 2.0, SPR_MASK64, 1, 1, 0, 1, SPR_HIT_3, j->cin == CIN_PURPLE ? C_PURPLE : C_SUN, 2 };
+    spawn_hit(s, cx, cy - 24, &h);
+    RValue cp = rv_undef(); RValue cid = rv_real(j->tgt_id);
+    YYGML_Variable_GetValue(&cid, g_VAR_parent.id, ARRAY_INDEX_NONE, &cp, false, false);
+    if (inst_exists_rv(s, &cp)) {
+        RValue z = rv_real(0);
+        YYGML_Variable_SetValue(&cp, g_VAR_plr_hp.id, ARRAY_INDEX_NONE, &z);
+    }
+    rv_free(&cp);
+    /* what is left of the blast in the fight itself, seen as the cinematic fades */
+    if (j->cin == CIN_PURPLE) fx_at(j, A_HP_NUKE, cx, cy, 0.7f, 0.7f, 0, 3, 0);
+    else fx_at(j, A_JS_BURST, cx, cy - 30, 1.4f, 1.4f, 0, 2, 0);
+    camera_shake(5);
+}
+static void cin_step(CInstance *s, Jeff *j) {
+    int t = ++j->t;
+    bset(s, &g_VAR_hspeed, 0); bset(s, &g_VAR_vspeed, 0);
+    if (!j->cin_done) pin_target(s, j);
+    int dur = j->cin == CIN_PURPLE ? CIN_PUR_DUR : CIN_RED_DUR, ko = j->cin == CIN_PURPLE ? CIN_PUR_KO : CIN_RED_KO;
+    if (t >= dur - 12) show(s, A_POSE, 1);              /* he holds his pose as the fight comes back */
+    else if (j->cin == CIN_PURPLE) {
+        show(s, A_PURPLE, (float)(t < 40 ? 0 : t < 70 ? 1 : t < 96 ? 2 : 3));
+        if (t == 72) play(s, SND_MAGIC3, 1.3);
+        if (t == 80) play_custom(s, S_HOLE, 1.6);
+        if (t == 96) play(s, SND_WOOSH3, 0.7);
+        if (t == 106) { play_custom(s, S_NUKE, 1.0); play(s, SND_EXPLOSION_MEGA, 0.8); j->shake = 14; }
+    } else {
+        show(s, A_METEOR, (float)(t < 20 ? 1 : 2));
+        if (t == 50) play(s, SND_THUNDER, 0.6);
+        if (t == ko) { play_custom(s, S_NUKE, 1.3); play(s, SND_DARKEXPLOSION, 0.8); j->shake = 10; }
+    }
+    if (j->shake > 0) j->shake *= 0.92f;
+    if (t == ko) play(s, SND_WINLOSE_IMPACT, 1.0);
+    if (t == dur - 12) cin_finish(s, j);                /* the K.O. lands as the fight comes back */
+    if (t >= dur) {
+        if (!j->cin_done) cin_finish(s, j);
+        if (j->depth_saved) { bset(s, &g_VAR_depth, j->old_depth); j->depth_saved = 0; }
+        j->move = MOVE_NONE; j->cin = CIN_NONE;
+        pset_b(s, &g_VAR_can_gethurt, true);
+        bset(s, &g_VAR_image_speed, 0.3);
+        bset_i(s, &g_VAR_alarm, 2, 1);
+    }
+}
+
+/* the player's taps: double-tap shield = switch power; with a full bar a skill tap waits a moment -
+   a second skill tap = RED BLACK HOLE, a second tap with a shield double tap = HOLLOW PURPLE, one
+   tap with the shield held = Bone Breaker, one tap alone = the normal skill (handed back to the game) */
+static void input_step(CInstance *s, Jeff *j) {
+    int now = j->aura_t;
+    bool def = pget(s, &g_VAR_key_defend) > 0.5;
+    if (def && !j->prev_def) {
+        j->def_t2 = j->def_t1; j->def_t1 = now;
+        if (j->def_t2 > 0 && now - j->def_t2 <= TAP_WINDOW && j->sw_cool == 0) { j->sw_pending = 1; j->sw_pending_t = now; }
+    }
+    j->prev_def = def;
+    bool free_ = j->move == MOVE_NONE && pget(s, &g_VAR_is_hurt) < 0.5 && pget(s, &g_VAR_is_fallen) < 0.5;
+    bool tap = !is_cpu(s) && pget(s, &g_VAR_keyp_special) > 0.5;
+    if (j->sk_pending == 2) {                           /* both skill taps in: is the shield's second tap coming? */
+        if (tap) pset_b(s, &g_VAR_keyp_special, false);
+        if (j->sw_pending) { j->sk_pending = 0; j->sw_pending = 0; start_cinematic(s, j, CIN_PURPLE); }
+        else if (now - j->sk_t1 > 8) { j->sk_pending = 0; start_cinematic(s, j, CIN_REDHOLE); }
+        return;
+    }
+    if (tap && free_ && full_bar(s) && pget(s, &g_VAR_is_onair) < 0.5) {
+        pset_b(s, &g_VAR_keyp_special, false);            /* hold the tap back for a moment */
+        if (j->sk_pending && now - j->sk_t1 <= TAP_WINDOW) {
+            bool dbl = j->sw_pending || (j->def_t2 > 0 && j->def_t1 - j->def_t2 <= TAP_WINDOW && now - j->def_t1 <= 20);
+            if (!dbl && (def || (j->def_t1 > 0 && now - j->def_t1 <= TAP_WINDOW))) { j->sk_pending = 2; j->sk_t1 = now; return; }
+            j->sk_pending = 0; j->sw_pending = 0;
+            start_cinematic(s, j, dbl ? CIN_PURPLE : CIN_REDHOLE);
+            return;
+        }
+        j->sk_pending = 1; j->sk_t1 = now; j->sk_pending_def = def;
+        j->sk_pending_down = pget(s, &g_VAR_key_down) > 0.5;
+        return;
+    }
+    if (j->sk_pending && now - j->sk_t1 > TAP_WINDOW) {   /* just one tap */
+        j->sk_pending = 0; j->sw_pending = 0;
+        if (!free_) return;                              /* he was hit meanwhile: the tap is lost */
+        if (j->sk_pending_def) start_special(s, j);       /* shield + skill: Bone Breaker */
+        else {                                           /* the normal skill: the game's framework sees the tap now */
+            pset_b(s, &g_VAR_keyp_special, true);
+            if (j->sk_pending_down) pset_b(s, &g_VAR_key_down, true);
+        }
+        return;
+    }
+    if (j->sw_pending && !j->sk_pending && now - j->sw_pending_t > 10) {
+        j->sw_pending = 0;
+        if (free_) start_switch(s, j);
+    }
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -941,7 +1291,7 @@ static void special_step(CInstance *s, Jeff *j) {
 static void special_abort(CInstance *s, Jeff *j) {
     release_target(s, j);
     if (j->depth_saved) { bset(s, &g_VAR_depth, j->old_depth); j->depth_saved = 0; }
-    j->move = MOVE_NONE;
+    j->move = MOVE_NONE; j->cin = CIN_NONE;
     if (parent_ok(s)) { pset_b(s, &g_VAR_can_gethurt, true); pset_b(s, &g_VAR_is_attacking, false); }
 }
 /* ------------------------------------------------------------------------------------------ */
@@ -951,18 +1301,29 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
     Jeff *j = slot(s, true);
     j->aura_t++;
     if (j->fail_t > 0) j->fail_t--;
+    if (j->sw_cool > 0) j->sw_cool--;
     bool pok = parent_ok(s);
 
-    if (j->move == MOVE_SPECIAL) {
+    if (j->move == MOVE_SPECIAL || j->move == MOVE_CIN) {   /* cutscenes run on their own */
         if (!pok) special_abort(s, j);
-        else special_step(s, j);
+        else if (j->move == MOVE_SPECIAL) special_step(s, j);
+        else cin_step(s, j);
         if (j->impact_on && ++j->impact_t >= 30) j->impact_on = 0;
-        meteors_step(s, j); hole_step(s, j); jfx_step(j);
+        meteors_step(s, j); hole_step(s, j); wave_step(s, j); jfx_step(j);
         return;
     }
-    if (pok && j->move == MOVE_NONE && (special_pressed(s) || cpu_wants_special(s))) {
-        start_special(s, j);
-        if (j->move == MOVE_SPECIAL) return;
+    if (pok) {
+        input_step(s, j);
+        if (j->move == MOVE_SPECIAL || j->move == MOVE_CIN) return;
+    }
+    if (pok && j->move == MOVE_NONE) {
+        if (special_pressed(s)) start_special(s, j);
+        else if (cpu_wants_special(s)) {                 /* the CPU picks one of his three finishers */
+            int r = (int)(rnd() % 3u);
+            if (r == 0) start_special(s, j);
+            else start_cinematic(s, j, r == 1 ? CIN_REDHOLE : CIN_PURPLE);
+        }
+        if (j->move == MOVE_SPECIAL || j->move == MOVE_CIN) return;
     }
 
     RValue ret = rv_undef();
@@ -976,12 +1337,19 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
 
     if (pok && j->move != MOVE_NONE) {
         if (pget(s, &g_VAR_is_hurt) > 0.5 || pget(s, &g_VAR_is_fallen) > 0.5) j->move = MOVE_NONE;   /* interrupted */
-        else if (j->move == MOVE_SKILL1) skill1_step(s, j);
-        else if (j->move == MOVE_SKILL2) skill2_step(s, j);
-        else if (j->move == MOVE_FLURRY) flurry_step(s, j);
+        else switch (j->move) {
+        case MOVE_SKILL1: skill1_step(s, j); break;
+        case MOVE_SKILL2: skill2_step(s, j); break;
+        case MOVE_FLURRY: flurry_step(s, j); break;
+        case MOVE_SWITCH: switch_step(s, j); break;
+        case MOVE_RSKILL1: rskill1_step(s, j); break;
+        case MOVE_RSKILL2: rskill2_step(s, j); break;
+        default: break;
+        }
     }
     meteors_step(s, j);
     hole_step(s, j);
+    wave_step(s, j);
     jfx_step(j);
     limb_step(s, j);
     if (j->impact_on && ++j->impact_t >= 30) j->impact_on = 0;
@@ -997,13 +1365,56 @@ void gml_Object_o_jeff_Step_0(CInstance *s, CInstance *o) {
 /* ------------------------------------------------------------------------------------------ */
 /* drawing                                                                                     */
 /* ------------------------------------------------------------------------------------------ */
+static int body_anim_of(int sp) {
+    if (sp < 0) return -1;
+    for (int a = 0; a < JEFF_BODY_N; a++) if (g_jeff_spr[a] == sp) return a;
+    return -1;
+}
+static const JeffFrame *meta_of(int a, float img) {
+    if (a < 0 || a >= JEFF_BODY_N || k_jeff_meta_first[a] < 0) return 0;
+    int f = finite_(img) ? (int)img : 0, n = k_sprites[a].frames;
+    if (f < 0) f = 0;
+    return &k_jeff_meta[k_jeff_meta_first[a] + f % n];
+}
+/* part of one of our sprites (the transformation reveals the new form row by row) */
+static void spr_part(CInstance *s, int a, float img, float l, float t, float w, float h, float x, float y,
+                     float xs, float ys, int col, float alpha) {
+    int id = g_jeff_spr[a];
+    if (id < 0 || !finite_(x) || !finite_(y) || w < 1 || h < 1) return;
+    RValue r = rv_undef();
+    RValue v[12] = { rv_real(id), rv_real(img), rv_real(l), rv_real(t), rv_real(w), rv_real(h), rv_real(x), rv_real(y),
+                     rv_real(xs), rv_real(ys), rv_real(col), rv_real(alpha) };
+    F_DrawSpritePartExt(&r, s, s, 12, v);
+    rv_free(&r);
+}
+/* the sun sword in his front hand (along the arm), the sun shield on his back hand; k = scale */
+static void draw_sword(CInstance *s, Jeff *j, const JeffFrame *m, float x, float y, float f, float k, float alpha) {
+    spr(s, A_JS_SWORD, (float)((j->aura_t / 3) % 6), x + f * m->fx * k, y + m->fy * k,
+        f * SWORD_K * k, SWORD_K * k, -m->fa * f, C_WHITE, alpha);
+}
+static void draw_shield(CInstance *s, Jeff *j, const JeffFrame *m, float x, float y, float f, float k, float alpha) {
+    spr(s, A_JS_SHIELD, (float)((j->aura_t / 3) % 8), x + f * m->bx * k, y + m->by * k,
+        f * SHIELD_K * k, SHIELD_K * k, 0, C_WHITE, alpha);
+}
+/* the black form's eyes glow */
+static void draw_eyes(CInstance *s, Jeff *j, const JeffFrame *m, float x, float y, float f, float k, float alpha) {
+    if (!(m->flags & JF_EYES) || alpha <= 0.02f) return;
+    float a = (0.5f + 0.12f * sinf_(j->aura_t * 0.21f)) * alpha;
+    blend(s, 1);
+    spr(s, A_JD_GLOW, 0, x + f * m->elx * k, y + m->ely * k, 0.62f * k, 0.62f * k, 0, C_EYE, a);
+    spr(s, A_JD_GLOW, 0, x + f * m->erx * k, y + m->ery * k, 0.62f * k, 0.62f * k, 0, C_EYE, a);
+    blend(s, 0);
+}
+
 void gml_Object_o_jeff_Draw_0(CInstance *s, CInstance *o) {
     (void)o;
     Jeff *j = slot(s, true);
     float x = sx_(s), y = sy_(s);
     float xs = (float)sget(s, &g_VAR_image_xscale);
+    float f = xs < 0 ? -1.0f : 1.0f;
     bool pok = parent_ok(s);
     bool charging = pok && pget(s, &g_VAR_is_charging) > 0.5;
+    bool red = j->power != 0;
 
     /* meteor shower: the black holes torn open in the sky */
     if (j->portals_on) {
@@ -1018,24 +1429,93 @@ void gml_Object_o_jeff_Draw_0(CInstance *s, CInstance *o) {
         g = j->bh_t < 10 ? 0.3f + 0.7f * j->bh_t / 10.0f : 1.0f;
         spr(s, A_JF_BHRING_B, (float)((j->bh_t / 3) % 8), j->bh_x, j->bh_y, g * 0.75f, g * 0.75f, 0, C_WHITE, 1);
     }
-    /* dark flame aura while charging or calling a skill */
-    if (charging || j->move == MOVE_SKILL1 || j->move == MOVE_SKILL2)
-        spr(s, A_JF_AURA, (float)((j->aura_t / 3) % 8), x, y + 2, xs < 0 ? -1.0f : 1.0f, 1, 0, C_WHITE, 0.9f);
+    /* flame aura while charging or calling a skill (sun fire in the red form) */
+    if (charging || j->move == MOVE_SKILL1 || j->move == MOVE_SKILL2 || j->move == MOVE_RSKILL1 || j->move == MOVE_RSKILL2)
+        spr(s, red ? A_JS_AURA : A_JF_AURA, (float)((j->aura_t / 3) % 8), x, y + 2, f, 1, 0, C_WHITE, 0.9f);
+    /* Corona: the sun on his shield swells before it flares */
+    if (j->move == MOVE_RSKILL2 && j->t < 14) {
+        blend(s, 1);
+        spr(s, A_JS_GLOW, 0, x, y - 30, 0.5f + j->t * 0.1f, 0.5f + j->t * 0.1f, 0, C_WHITE, 0.8f);
+        blend(s, 0);
+    }
 
-    YYGML_draw_self(s);
+    int sp = (int)sget(s, &g_VAR_sprite_index);
+    int a = body_anim_of(sp);
+    float img = (float)sget(s, &g_VAR_image_index);
+    const JeffFrame *m = meta_of(a, img);
 
-    /* the burning fist(s) / foot of this frame: a streak behind it, the flame round it, a glow */
-    const JeffFrame *m = jeff_frame(s, 0);
-    if (m && m->hot) {
-        float f = xs < 0 ? -1.0f : 1.0f;
+    /* the transformation: the new form rises from his feet to the tips of his ears */
+    bool base_dark = red, to_dark = false;
+    float rise = -1;
+    if (j->move == MOVE_SWITCH) {
+        bool from_dark = j->t < 12 ? red : !red;
+        base_dark = from_dark; to_dark = !from_dark;
+        rise = (j->t - 4) / 16.0f;
+        if (rise < 0) rise = 0;
+        if (rise > 1) rise = 1;
+    }
+    float wa = red ? 1.0f : 0.0f;                         /* sword and shield fade in / out with it */
+    if (rise >= 0) wa = to_dark ? rise : 1 - rise;
+    float ea = base_dark ? 1.0f : 0.0f;                   /* the eyes light when the black reaches them */
+    if (rise >= 0) ea = to_dark ? (rise - 0.8f) * 5 : (rise < 0.75f ? 1.0f : 0.0f);
+
+    if (m && wa > 0.02f) {
+        if (!(m->flags & JF_BOVER)) draw_shield(s, j, m, x, y, f, 1, wa);
+        if (!(m->flags & JF_FOVER)) draw_sword(s, j, m, x, y, f, 1, wa);
+    }
+    if (a >= 0 && base_dark && g_jeff_spr[A_DARK0 + a] >= 0) {
+        bset(s, &g_VAR_sprite_index, g_jeff_spr[A_DARK0 + a]);   /* the black copy, for this draw only */
+        YYGML_draw_self(s);
+        bset(s, &g_VAR_sprite_index, sp);
+    } else {
+        YYGML_draw_self(s);
+    }
+    if (a >= 0 && rise > 0) {
+        float top = 72 - rise * 68;
+        if (top < 0) top = 0;
+        spr_part(s, to_dark ? A_DARK0 + a : a, img, 0, top, 96, 72 - top, x - 48 * f, y + top - 71, f, 1, C_WHITE, 1);
+        if (rise < 1) {                                   /* a band of fire at the edge */
+            float by = y + top - 71;
+            int fl = to_dark ? A_JS_FIST : A_JF_FIST;
+            for (int i = -1; i <= 1; i++)
+                spr(s, fl, (float)((j->aura_t / 2 + i + 1) % 8), x + i * 10, by + 4, 0.42f, 0.42f, 90, C_WHITE, 1);
+            blend(s, 1);
+            spr(s, to_dark ? A_JS_GLOW : A_JF_GLOW, 0, x, by, 0.9f, 0.35f, 0, C_WHITE, 0.85f);
+            blend(s, 0);
+        }
+    }
+    if (m && wa > 0.02f) {
+        if (m->flags & JF_BOVER) draw_shield(s, j, m, x, y, f, 1, wa);
+        if (m->flags & JF_FOVER) draw_sword(s, j, m, x, y, f, 1, wa);
+    }
+    if (m && ea > 0.02f) draw_eyes(s, j, m, x, y, f, 1, ea > 1 ? 1 : ea);
+
+    /* the burning blows of this frame */
+    if (m && (m->hot & 7)) {
         for (int b = 0; b < 3; b++) {
             if (!(m->hot & (1 << b))) continue;
             float px = x + f * (b == 0 ? m->fx : b == 1 ? m->bx : m->kx);
             float py = y + (b == 0 ? m->fy : b == 1 ? m->by : m->ky);
-            spr(s, A_JF_TRAIL, (float)((j->aura_t / 2) % 6), px, py, f * 0.7f, 0.7f, 0, C_WHITE, 0.9f);
-            spr(s, A_JF_FIST, (float)((j->aura_t / 2) % 8), px, py, f, 1, 0, C_WHITE, 1);
+            if (red && b == 0) {                          /* the sun sword's blade blazes */
+                float an = m->fa * 0.0174533f;
+                float tx = px + f * SWORD_LEN * cosf_(an), ty = py + SWORD_LEN * sinf_(an);
+                spr(s, A_JS_TRAIL, (float)((j->aura_t / 2) % 6), tx, ty, f * 0.6f, 0.55f, -m->fa * f, C_WHITE, 0.9f);
+                blend(s, 1);
+                spr(s, A_JS_GLOW, 0, (px + tx) * 0.5f, (py + ty) * 0.5f, 0.9f, 0.45f, -m->fa * f, C_WHITE, 0.75f);
+                blend(s, 0);
+                continue;
+            }
+            if (red && b == 1) {                          /* the sun shield flares */
+                spr(s, A_JS_FIST, (float)((j->aura_t / 2) % 8), px, py, f * 0.9f, 0.9f, 0, C_WHITE, 1);
+                blend(s, 1);
+                spr(s, A_JS_GLOW, 0, px, py, 0.75f, 0.75f, 0, C_WHITE, 0.8f);
+                blend(s, 0);
+                continue;
+            }
+            spr(s, red ? A_JS_TRAIL : A_JF_TRAIL, (float)((j->aura_t / 2) % 6), px, py, f * 0.7f, 0.7f, 0, C_WHITE, 0.9f);
+            spr(s, red ? A_JS_FIST : A_JF_FIST, (float)((j->aura_t / 2) % 8), px, py, f, 1, 0, C_WHITE, 1);
             blend(s, 1);
-            spr(s, A_JF_GLOW, 0, px, py, 0.45f, 0.45f, 0, C_WHITE, 0.8f);
+            spr(s, red ? A_JS_GLOW : A_JF_GLOW, 0, px, py, 0.45f, 0.45f, 0, C_WHITE, 0.8f);
             blend(s, 0);
         }
     }
@@ -1059,15 +1539,23 @@ void gml_Object_o_jeff_Draw_0(CInstance *s, CInstance *o) {
         spr(s, A_JF_GLOW, 0, mt->x, mt->y, 0.5f, 0.5f, 0, C_WHITE, 0.7f);
         blend(s, 0);
     }
-    /* one-shot effects: bursts, kick arcs, craters */
+    /* Solar Flare: the crescent of sun fire */
+    if (j->wave_on) {
+        float wa2 = j->wave_t > 32 ? (40 - j->wave_t) / 8.0f : 1.0f;
+        spr(s, A_JS_WAVE, (float)((j->wave_t / 2) % 8), j->wave_x, j->wave_y, j->wave_dir, 1, 0, C_WHITE, wa2);
+        blend(s, 1);
+        spr(s, A_JS_GLOW, 0, j->wave_x - j->wave_dir * 6, j->wave_y, 0.7f, 1.2f, 0, C_WHITE, 0.7f * wa2);
+        blend(s, 0);
+    }
+    /* one-shot effects: bursts, kick arcs, craters, rings */
     for (int i = 0; i < N_JFX; i++) {
         JFx *fx = &j->fx[i];
         if (!fx->on) continue;
         if (fx->add) blend(s, 1);
-        spr(s, fx->a, (float)(fx->t / fx->tpf), fx->x, fx->y, fx->xs, fx->ys, fx->rot, C_WHITE, 1);
+        spr(s, fx->a, (float)(fx->t / fx->tpf), fx->x, fx->y, fx->xs, fx->ys, fx->rot, fx->col, 1);
         if (fx->add) blend(s, 0);
     }
-    if (j->fail_t > 0) {                                /* the special needs a full energy bar */
+    if (j->fail_t > 0) {                                /* the finishers need a full energy bar */
         blend(s, 1);
         spr(s, A_JF_GLOW, 0, x, y - 62, 0.6f, 0.6f, 0, C_RED, j->fail_t / 24.0f);
         blend(s, 0);
@@ -1090,10 +1578,185 @@ static double legacy0(CInstance *s, YYVAR *f) {
     return d;
 }
 
+/* ------------------------------------------------------------------------------------------ */
+/* the cinematics (GUI layer, a 320x180 stage scaled to the screen)                            */
+/* ------------------------------------------------------------------------------------------ */
+static float sstep(float a, float b, float t) {
+    float u = (t - a) / (b - a);
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    return u * u * (3 - 2 * u);
+}
+static void gui_fill(float gw, float gh, int col, float alpha) {
+    if (alpha <= 0.01f) return;
+    YYGML_draw_set_colour(col);
+    YYGML_draw_set_alpha(alpha > 1 ? 1 : alpha);
+    YYGML_draw_rectangle(0, 0, gw, gh, false);
+}
+/* Jeff on the cinematic stage: feet at (X, Y), facing right, k = scale */
+static void cin_jeff(CInstance *s, Jeff *j, int a, int frame, float X, float Y, float k, bool dark, float alpha) {
+    spr(s, dark ? A_DARK0 + a : a, (float)frame, X, Y, k, k, 0, C_WHITE, alpha);
+    const JeffFrame *m = meta_of(a, (float)frame);
+    if (dark && m) draw_eyes(s, j, m, X, Y, 1, k, alpha);
+}
+/* the opponent as they were when it started (their own sprite), facing Jeff */
+static void cin_victim(CInstance *s, Jeff *j, float X, float Y, float xs, float ys, float rot, float alpha) {
+    if (j->cin_spr < 0 || alpha <= 0.01f) return;
+    YYGML_draw_sprite_ext(s, j->cin_spr, j->cin_img, X, Y, -xs * j->cin_vk, ys * j->cin_vk, rot, C_WHITE, alpha);
+}
+
+static void draw_cinematic(CInstance *s, Jeff *j) {
+    float gw = (float)legacy0(s, &g_FUNC_display_get_gui_width);
+    float gh = (float)legacy0(s, &g_FUNC_display_get_gui_height);
+    if (gw < 16 || gh < 16) return;
+    float P = gw / CUT_W; if (gh / CUT_H < P) P = gh / CUT_H;
+    float ox = (gw - CUT_W * P) * 0.5f, oy = (gh - CUT_H * P) * 0.5f;
+    if (j->shake > 0.3f) { ox += frand(-j->shake, j->shake) * P * 0.5f; oy += frand(-j->shake, j->shake) * P * 0.5f; }
+#define GX(v) (ox + (v) * P)
+#define GY(v) (oy + (v) * P)
+    int t = j->t;
+    bool redc = j->cin == CIN_REDHOLE;
+    int dur = redc ? CIN_RED_DUR : CIN_PUR_DUR, ko = redc ? CIN_RED_KO : CIN_PUR_KO;
+    float A = t > dur - 12 ? (dur - t) / 12.0f : 1.0f;   /* fades back to the fight at the end */
+    if (A < 0) A = 0;
+    bool dark = redc || j->power;                        /* the red black hole is the black form's */
+
+    gui_fill(gw, gh, 0, A);
+    spr(s, A_CIN_BG, redc ? 0 : 1, GX(0), GY(0), P, P, 0, C_WHITE, A);
+
+    if (redc) {
+        /* RED BLACK HOLE: a sun-fire black hole opens over the opponent and swallows them */
+        float HX = 222, HY = 74;
+        float gr = sstep(8, 56, (float)t) * (1 - 0.8f * sstep(102, (float)ko, (float)t));
+        if (t < ko) {
+            float d = (0.35f + 0.8f * gr) * P, c = (0.2f + 0.62f * gr) * P;
+            spr(s, A_RBH_DISK_B, (float)((t / 3) % 8), GX(HX), GY(HY), d, d, 0, C_WHITE, A);
+            spr(s, A_RBH_CORE, (float)((t / 3) % 8), GX(HX), GY(HY), c, c, 0, C_WHITE, A);
+        }
+        float u = sstep(26, 104, (float)t);              /* pulled up, stretched thin, spun */
+        if (t < 110)
+            cin_victim(s, j, GX(238 + (HX - 238) * u), GY(150 + (HY + 16 - 150) * u),
+                       1.6f * P * (1 - 0.72f * u), 1.6f * P * (1 + 1.4f * u), u * u * 620, A * (1 - sstep(94, 108, (float)t)));
+        for (int i = 0; i < 7 && t < ko; i++) {          /* rubble torn off the ground, spiralling in */
+            float ph = (float)((t * 2 + i * 37) % 120) / 120.0f;
+            float ang = i * 0.9f + ph * 7.0f, rr = (96 * (1 - ph) + 10) * (0.4f + 0.6f * gr);
+            spr(s, A_JF_ROCK, (float)((t / 3 + i) % 8), GX(HX + rr * cosf_(ang)), GY(HY + rr * 0.45f * sinf_(ang)),
+                P * 1.3f, P * 1.3f, 0, C_SUN, A * gr);
+        }
+        if (t < ko) {
+            float d = (0.35f + 0.8f * gr) * P;
+            spr(s, A_RBH_DISK_F, (float)((t / 3) % 8), GX(HX), GY(HY), d, d, 0, C_WHITE, A);
+        }
+        bool posed = t >= ko + 8;
+        cin_jeff(s, j, posed ? A_POSE : A_METEOR, posed ? (t < ko + 30 ? 0 : 1) : (t < 22 ? 1 : 2), GX(78), GY(150), 1.6f * P, dark, A);
+        if (!posed) {                                    /* the hand that holds it open */
+            const JeffFrame *m = meta_of(A_METEOR, t < 22 ? 1.0f : 2.0f);
+            if (m) {
+                blend(s, 1);
+                spr(s, A_JS_GLOW, 0, GX(78 + m->fx * 1.6f), GY(150 + m->fy * 1.6f), 0.5f * P, 0.5f * P, 0, C_WHITE, A * (0.6f + 0.3f * gr));
+                blend(s, 0);
+            }
+        }
+        if (t >= ko) {                                   /* it collapses: the sun bursts out */
+            int e = t - ko;
+            blend(s, 1);
+            if (e < 30) spr(s, A_JS_BURST, (float)(e / 3), GX(HX), GY(HY), 2.4f * P, 2.4f * P, 0, C_WHITE, A);
+            spr(s, A_JS_GLOW, 0, GX(HX), GY(HY), (1.5f + e * 0.12f) * P, (1.5f + e * 0.12f) * P, 0, C_WHITE, A * (1 - e / 52.0f));
+            blend(s, 0);
+            for (int r = 0; r < 2; r++) {
+                int er = e - r * 6;
+                if (er < 0 || er > 36) continue;
+                float rs = (0.5f + er * 0.06f) * P;
+                spr(s, A_CIN_RING, (float)((er / 3) % 8), GX(HX), GY(HY + 6), rs, rs, 0, C_SUN, A * (1 - er / 36.0f));
+            }
+        }
+        if (t < 6) gui_fill(gw, gh, C_WHITE, (6 - t) / 6.0f * A);
+        if (t >= ko && t < ko + 8) gui_fill(gw, gh, C_WHITE, (ko + 8 - t) / 8.0f * A);
+    } else {
+        /* HOLLOW PURPLE: blue in one hand, red in the other, merged, flicked - a purple nuclear blast */
+        float JX = 92, JY = 150, k = 1.7f;
+        if (t > 150) k += 0.3f * sstep(150, 178, (float)t);      /* push in on the pose */
+        int ja = t < 150 ? A_PURPLE : A_POSE;
+        int jf = t < 150 ? (t < 40 ? 0 : t < 70 ? 1 : t < 96 ? 2 : 3) : 1;
+        if (t < 112) cin_victim(s, j, GX(262), GY(150), 1.6f * P, 1.6f * P, 0, A);
+        cin_jeff(s, j, ja, jf, GX(JX), GY(JY), k * P, dark, A);
+        const JeffFrame *m = meta_of(A_PURPLE, (float)(jf > 3 ? 3 : jf));
+        if (t < 96 && m) {
+            float bx = JX + m->bx * k, by = JY + m->by * k, fx = JX + m->fx * k, fy = JY + m->fy * k;
+            float og = sstep(0, 20, (float)t), pul = 1 + 0.08f * sinf_(t * 0.5f);
+            if (t < 72) {
+                float o2 = og * pul * 1.1f * P;
+                float mx = t < 40 ? 0 : sstep(40, 72, (float)t) * 0.5f;  /* drifting together */
+                float bx2 = bx + (fx - bx) * mx * 0.6f, fx2 = fx + (bx - fx) * mx * 0.6f;
+                spr(s, A_HP_ORB_B, (float)((t / 2) % 8), GX(bx2), GY(by), o2, o2, 0, C_WHITE, A);
+                spr(s, A_HP_ORB_R, (float)((t / 2) % 8), GX(fx2), GY(fy), o2, o2, 0, C_WHITE, A);
+                blend(s, 1);
+                spr(s, A_JF_GLOW, 0, GX(bx2), GY(by), 0.9f * og * P, 0.9f * og * P, 0, C_WHITE, A * 0.7f);
+                spr(s, A_JS_GLOW, 0, GX(fx2), GY(fy), 0.9f * og * P, 0.9f * og * P, 0, C_WHITE, A * 0.7f);
+                blend(s, 0);
+            } else {
+                float mx = (bx + fx) * 0.5f, my = (by + fy) * 0.5f;
+                float pg = (0.8f + 0.8f * sstep(72, 94, (float)t)) * pul * P;
+                spr(s, A_HP_ORB_P, (float)((t / 2) % 8), GX(mx), GY(my), pg, pg, 0, C_WHITE, A);
+                blend(s, 1);
+                spr(s, A_JD_GLOW, 0, GX(mx), GY(my), 3.2f * pg, 3.2f * pg, 0, C_PURPLE, A * 0.65f);
+                blend(s, 0);
+            }
+        }
+        if (t >= 96 && t < 110) {                        /* the flick */
+            const JeffFrame *m3 = meta_of(A_PURPLE, 3);
+            float sx0 = JX + (m3 ? m3->fx : 30) * k, sy0 = JY + (m3 ? m3->fy : -30) * k;
+            float u = (t - 96) / 10.0f;
+            if (u > 1) u = 1;
+            for (int i = 3; i >= 0; i--) {
+                float uu = u - i * 0.08f;
+                if (uu < 0) continue;
+                float ps = 1.6f * P * (1 - i * 0.16f);
+                spr(s, A_HP_ORB_P, (float)((t / 2 + i) % 8), GX(sx0 + (262 - sx0) * uu), GY(sy0 + (124 - sy0) * uu), ps, ps, 0, C_WHITE, A * (1 - i * 0.22f));
+            }
+        }
+        if (t >= 106) {                                  /* the blast */
+            int e = t - 106, nf = e / 4;
+            if (nf > 11) nf = 11;
+            float na = e > 44 ? 1 - (e - 44) / 18.0f : 1.0f;    /* the cloud thins out */
+            if (na < 0) na = 0;
+            spr(s, A_HP_NUKE, (float)nf, GX(262), GY(152), 1.3f * P, 1.3f * P, 0, C_WHITE, A * na);
+            blend(s, 1);                                         /* the ground keeps glowing */
+            spr(s, A_JD_GLOW, 0, GX(262), GY(150), 7.0f * P, 1.6f * P, 0, C_PURPLE, A * 0.6f * (1 - sstep(50, 94, (float)e)));
+            blend(s, 0);
+            for (int r = 0; r < 3; r++) {
+                int er = e - r * 5;
+                if (er < 0 || er > 40) continue;
+                float rs = (0.5f + er * 0.075f) * P;
+                spr(s, A_CIN_RING, (float)((er / 3) % 8), GX(262), GY(150), rs, rs, 0, C_PURPLE, A * (1 - er / 40.0f));
+            }
+            blend(s, 1);
+            spr(s, A_JD_GLOW, 0, GX(262), GY(110), (4 + e * 0.08f) * P, (4 + e * 0.08f) * P, 0, C_PURPLE, A * (1 - sstep(0, 70, (float)e)) * 0.8f);
+            blend(s, 0);
+        }
+        if (t >= 72 && t < 78) gui_fill(gw, gh, C_PURPLE, (78 - t) / 6.0f * 0.5f * A);
+        if (t >= 106 && t < 118) gui_fill(gw, gh, C_WHITE, (118 - t) / 12.0f * A);
+    }
+    /* letterbox bars */
+    float h = CUT_H * P, bar = h * 0.1f;
+    float in = t < 10 ? t / 10.0f : (t > dur - 10 ? (dur - t) / 10.0f : 1.0f);
+    if (in < 0) in = 0;
+    YYGML_draw_set_alpha(A);
+    YYGML_draw_set_colour(0);
+    YYGML_draw_rectangle(0, 0, gw, oy + bar * in, false);
+    YYGML_draw_rectangle(0, gh - oy - bar * in, gw, gh, false);
+    YYGML_draw_set_colour(C_WHITE);
+    YYGML_draw_set_alpha(1);
+#undef GX
+#undef GY
+}
+
 void gml_Object_o_jeff_Draw_64(CInstance *s, CInstance *o) {
     (void)o;
     Jeff *j = slot(s, false);
-    if (!j || j->move != MOVE_SPECIAL || j->t <= SP_DASH || j->t > SP_DASH + SP_CUT) return;
+    if (!j) return;
+    if (j->move == MOVE_CIN) { draw_cinematic(s, j); return; }
+    if (j->move != MOVE_SPECIAL || j->t <= SP_DASH || j->t > SP_DASH + SP_CUT) return;
     int c = j->cut_t;
     float gw = (float)legacy0(s, &g_FUNC_display_get_gui_width);
     float gh = (float)legacy0(s, &g_FUNC_display_get_gui_height);

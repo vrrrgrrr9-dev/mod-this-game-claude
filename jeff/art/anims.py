@@ -193,19 +193,93 @@ for _n in ('jab', 'cross', 'hook', 'uppercut', 'airpunch', 'crouchpunch'):      
         if _p.get('armB', ('stub',))[0] == 'fist' and _p['armB'][1] > 760: _h += 'B'
         if _h: _p['hot'] = _h
 
+# --- red power: the sun sword in his front hand, the sun shield on his back hand (the game draws
+#     both at the hand positions / arm angle recorded below) ------------------------------------
+ANIMS['rstand'] = [dict(STANCE, eyes='angry', armF=F(740, 1000, 44, 32), armB=F(700, 940, 44, 32)),
+                   dict(STANCE, dy=-3, eyes='angry', armF=F(742, 996, 44, 32), armB=F(702, 935, 44, 32))]
+ANIMS['rdefend'] = [dict(sy=0.9, footF=(30, 0, 0), footB=(-22, 0, 0), eyes='angry', armB=F(720, 860, 46, 34), armF=F(560, 1010, 44, 32),
+                         back_arm_over=True, head=(-8, 6, 6))]
+ANIMS['rs1'] = [dict(STANCE, rot=-4, eyes='angry', armF=F(560, 820, 44, 32), armB=F(620, 930, 42, 30), back_arm_over=True),
+                dict(STANCE, rot=8, dx=8, eyes='angry', armF=F(960, 940, 50, 34), front_arm_over=True, armB=F(600, 940, 42, 30), hot='F'),
+                dict(STANCE, rot=6, dx=6, eyes='angry', armF=F(860, 1060, 46, 32), front_arm_over=True, armB=F(600, 940, 42, 30))]
+ANIMS['rs2'] = [dict(STANCE, sy=0.94, eyes='angry', armF=F(820, 1080, 46, 32), front_arm_over=True),
+                dict(STANCE, rot=-6, dy=-4, eyes='angry', armF=F(900, 780, 50, 34), front_arm_over=True, hot='F'),
+                dict(STANCE, rot=-4, dy=-6, eyes='angry', armF=F(760, 640, 48, 34), front_arm_over=True, head=(0, 0, -6))]
+ANIMS['rs3'] = [dict(STANCE, rot=-8, eyes='angry', armF=F(600, 940, 44, 32), armB=F(640, 900, 42, 30), back_arm_over=True),
+                dict(STANCE, rot=12, dx=14, eyes='angry', armF=F(990, 920, 54, 36), front_arm_over=True, hot='F', footB=(-30, -6, -10)),
+                dict(STANCE, rot=8, dx=10, eyes='angry', armF=F(930, 930, 50, 34), front_arm_over=True)]
+ANIMS['rs4'] = [dict(STANCE, rot=6, eyes='angry', armF=F(480, 900, 44, 32), tail=(0, 0, 30), head=(-6, 0, -4)),
+                dict(STANCE, rot=-2, eyes='angry', armF=F(620, 760, 46, 32), tail=(0, 0, -20), front_arm_over=True),
+                dict(STANCE, rot=10, dx=8, eyes='angry', armF=F(960, 860, 50, 34), front_arm_over=True, tail=(0, 0, -40), hot='F'),
+                dict(STANCE, rot=8, dx=8, eyes='angry', armF=F(880, 1080, 48, 32), front_arm_over=True, hot='F')]
+ANIMS['rs5'] = [dict(STANCE, sy=0.9, eyes='angry', armF=F(640, 560, 50, 34), front_arm_over=True, head=(0, 4, -8)),
+                dict(STANCE, dy=-20, eyes='angry', armF=F(700, 520, 52, 36), front_arm_over=True, head=(0, 0, -10), hot='F'),
+                dict(STANCE, rot=14, dx=10, eyes='angry', armF=F(950, 1050, 52, 36), front_arm_over=True, hot='F'),
+                dict(STANCE, rot=8, dx=8, sy=0.94, eyes='angry', armF=F(900, 1100, 48, 34), front_arm_over=True)]
+ANIMS['rb1'] = [dict(STANCE, rot=-4, eyes='angry', armB=F(560, 930, 44, 32), armF=F(700, 1010, 42, 30)),
+                dict(STANCE, rot=10, dx=12, eyes='angry', armB=F(900, 920, 52, 36), back_arm_over=True, armF=F(640, 1010, 42, 30), hot='B'),
+                dict(STANCE, rot=6, dx=8, eyes='angry', armB=F(800, 930, 48, 34), back_arm_over=True)]
+ANIMS['rb2'] = [dict(STANCE, sy=0.92, eyes='angry', armB=F(760, 1060, 46, 32), back_arm_over=True),
+                dict(STANCE, rot=-6, dy=-8, eyes='angry', armB=F(860, 760, 50, 34), back_arm_over=True, hot='B'),
+                dict(STANCE, rot=-4, dy=-6, eyes='angry', armB=F(760, 700, 48, 34), back_arm_over=True)]
+ANIMS['rb3'] = [dict(rot=14, dx=16, footF=(40, -6, 10), footB=(-40, -10, -16), eyes='angry', armB=F(920, 900, 52, 36), back_arm_over=True, hot='B', tail=(0, 0, -20)),
+                dict(rot=16, dx=18, footF=(30, 0, 0), footB=(-46, -14, -20), eyes='angry', armB=F(930, 905, 52, 36), back_arm_over=True, hot='B', tail=(0, 0, -26))]
+ANIMS['rb4'] = [dict(dy=-16, eyes='angry', armB=F(700, 640, 50, 34), back_arm_over=True, head=(0, 0, -8)),
+                dict(dy=-22, eyes='angry', armB=F(760, 600, 52, 36), back_arm_over=True, hot='B'),
+                dict(STANCE, sy=0.9, rot=10, eyes='angry', armB=F(860, 1120, 52, 36), back_arm_over=True, hot='B'),
+                dict(STANCE, rot=4, eyes='angry', armB=F(780, 1060, 46, 32), back_arm_over=True)]
+ANIMS['power'] = [dict(STANCE, sy=0.86, eyes='angry', armF=F(600, 960, 44, 32), armB=F(660, 960, 44, 32), front_arm_over=True, back_arm_over=True),
+                  dict(STANCE, dy=-6, eyes='angry', armF=F(900, 760, 48, 34), armB=F(300, 760, 46, 32), front_arm_over=True, head=(0, 0, -10)),
+                  dict(STANCE, eyes='angry', armF=F(740, 1000, 44, 32), armB=F(620, 920, 44, 32), back_arm_over=True)]
+ANIMS['purple'] = [dict(STANCE, eyes='angry', armF=F(860, 860, 48, 34), armB=F(300, 860, 46, 32), front_arm_over=True),
+                   dict(STANCE, eyes='angry', armF=F(780, 860, 46, 32), armB=F(560, 860, 46, 32), front_arm_over=True, back_arm_over=True),
+                   dict(STANCE, eyes='angry', armF=F(710, 860, 46, 32), armB=F(690, 872, 46, 32), front_arm_over=True, back_arm_over=True, head=(6, 0, 4)),
+                   dict(STANCE, rot=8, dx=10, eyes='angry', armF=F(980, 820, 50, 34), front_arm_over=True, armB=S(0, 0, 30))]
+ANIMS['pose'] = [dict(STANCE, eyes='angry', armF=F(700, 560, 50, 34), front_arm_over=True, head=(0, 0, -8), tail=(0, 0, 10)),
+                 dict(STANCE, eyes='angry', armF=F(620, 900, 46, 32), armB=F(680, 905, 46, 32), front_arm_over=True, back_arm_over=True,
+                      head=(-10, 0, -6), tail=(0, 0, 16))]
+
+# the sun sword's angle per frame (degrees, y down, facing right; 0 = straight ahead, -90 = up).
+# Frames not listed carry it raised forward (-60, turned with the body); a blade that would reach
+# below his feet is lifted so it never stabs the floor.
+SWORD = {
+    'rstand': [-55, -58], 'rdefend': [-35],
+    'rs1': [-125, 12, 40], 'rs2': [30, -40, -85], 'rs3': [-5, 0, 3], 'rs4': [-165, -95, -10, 25],
+    'rs5': [-115, -100, 35, 45], 'rb1': [-60, -50, -55], 'rb2': [-60, -70, -70], 'rb3': [-25, -25],
+    'rb4': [-80, -90, -40, -50], 'power': [-80, -60, -55], 'meteor': [-60, -100, -100, -10],
+    'abyss': [-60, -45, -45, -35], 'crouchpunch': [0, 0, 0], 'airpunch': [20, 25],
+}
+SWORD_LEN = 45
+
 ORDER = ['stand', 'walk', 'run', 'jump', 'fall', 'crouch', 'defend', 'charge', 'hurt', 'hurtup', 'hurtdown', 'fallen',
          'jab', 'cross', 'hook', 'flurry', 'uppercut', 'kick1', 'kick2', 'kick3', 'kick4', 'airpunch', 'airkick',
-         'crouchpunch', 'crouchkick', 'meteor', 'abyss', 'grab', 'win']
+         'crouchpunch', 'crouchkick', 'meteor', 'abyss', 'grab', 'win',
+         'rstand', 'rdefend', 'rs1', 'rs2', 'rs3', 'rs4', 'rs5', 'rb1', 'rb2', 'rb3', 'rb4', 'power', 'purple', 'pose']
 
 
-def meta(pose):
-    """hot points of a frame (1x px from the feet, facing right) for the game's dark flames."""
+def sword_angle(pose, sa, fy):
+    if sa is None:
+        sa = -60 + pose.get('rot', 0)
+    lim = (-fy - 3) / SWORD_LEN                      # sin(angle) at most this: the tip stays above the floor
+    if lim < 1 and math.sin(math.radians(sa)) > lim:
+        amax = math.degrees(math.asin(max(-1.0, lim)))
+        sa = amax if math.cos(math.radians(sa)) >= 0 else 180 - amax
+    return int(round(sa))
+
+
+def meta(pose, sa=None):
+    """hot points of a frame (1x px from the feet, facing right) for the game's dark flames, the
+    sun sword's angle (fa), eye centres and drawing flags."""
     pts = rig.points(pose, OX, OY)
     m = dict(fx=0, fy=0, bx=0, by=0, kx=0, ky=0, hot=pose.get('hot', ''))
-    if 'armF' in pts: m['fx'], m['fy'] = [int(round(v)) for v in pts['armF']]
-    if 'armB' in pts: m['bx'], m['by'] = [int(round(v)) for v in pts['armB']]
+    m['fx'], m['fy'] = [int(round(v)) for v in pts['armF']]
+    m['bx'], m['by'] = [int(round(v)) for v in pts['armB']]
+    m['fa'], m['ba'] = sword_angle(pose, sa, m['fy']), int(round(pts['armB_a']))
     k = pts.get('kickF') or pts.get('kickB')
     if k: m['kx'], m['ky'] = [int(round(v)) for v in k]
+    m['elx'], m['ely'] = [int(round(v)) for v in pts['eyeL']]
+    m['erx'], m['ery'] = [int(round(v)) for v in pts['eyeR']]
+    m['flags'] = (1 if pts['eyes_open'] else 0) | (2 if pose.get('front_arm_over') else 0) | (4 if pose.get('back_arm_over') else 0)
     return m
 
 
@@ -216,18 +290,21 @@ def build(out):
     info = {}
     for name in ORDER:
         strip(render_anim(name)).save(os.path.join(out, f'jeff_{name}.png'))
-        info[name] = dict(n=len(ANIMS[name]), ox=OX, oy=OY, meta=[meta(p) for p in ANIMS[name]])
+        strip(render_anim(name, 'dark')).save(os.path.join(out, f'jeff_d_{name}.png'))    # the red-power form
+        sa = SWORD.get(name, [])
+        info[name] = dict(n=len(ANIMS[name]), ox=OX, oy=OY,
+                          meta=[meta(p, sa[i] if i < len(sa) else None) for i, p in enumerate(ANIMS[name])])
     strip(render_anim('stand')).save(os.path.join(out, 'jeff_preview.png'))
     json.dump({'order': ORDER, 'anims': info, 'preview': dict(n=len(ANIMS['stand']), ox=OX, oy=OY)},
               open(os.path.join(out, 'jeff_frames.json'), 'w'))
     return info
 
 
-def render_anim(name):
+def render_anim(name, style='white'):
     frames = []
     for pose in ANIMS[name]:
         pose = dict(pose); fx = pose.pop('fx', None); pose.pop('hot', None)
-        frames.append(rig.render(pose, W, H, OX, OY, fx=fx))
+        frames.append(rig.render(pose, W, H, OX, OY, fx=fx, style=style))
     return frames
 
 def strip(frames):

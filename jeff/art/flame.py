@@ -27,6 +27,20 @@ DARK = np.array((10, 6, 30), np.float32)
 
 PAL = np.array([DARK, DEEP, BLUE, CYAN, EDGE], np.float32)
 _LUM = PAL @ np.array((0.3, 0.55, 0.15), np.float32)
+
+PALETTES = {   # dark -> deep -> body -> bright -> edge
+    'blue': [(10, 6, 30), (22, 40, 150), (40, 104, 246), (96, 200, 255), (205, 244, 255)],
+    'sun': [(46, 6, 4), (150, 18, 10), (236, 70, 18), (255, 172, 40), (255, 246, 196)],
+    'purple': [(22, 4, 36), (92, 20, 150), (164, 52, 232), (222, 136, 255), (250, 228, 255)],
+}
+
+
+def use_palette(name):
+    """switch every effect in this module to another 5-tone fire palette (blue / sun / purple)."""
+    global EDGE, CYAN, BLUE, DEEP, DARK, PAL, _LUM
+    DARK, DEEP, BLUE, CYAN, EDGE = [np.array(c, np.float32) for c in PALETTES[name]]
+    PAL = np.array([DARK, DEEP, BLUE, CYAN, EDGE], np.float32)
+    _LUM = PAL @ np.array((0.3, 0.55, 0.15), np.float32)
 _BAYER = (np.array([[0, 2], [3, 1]], np.float32) / 4.0) - 0.375
 
 

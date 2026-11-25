@@ -16,6 +16,13 @@ SHADE = (214, 216, 224, 255)     # far-side limbs (tiny depth cue)
 WHITE = (255, 255, 255, 255)
 BLACK = (16, 16, 20, 255)
 
+# the red-power form: the same drawing gone black, with glowing white eyes ringed in yellow and a
+# white tag with two black buttons on the chest (the user's "dark Jeff" drawing)
+DARK = dict(head=(33, 33, 36, 255), limb=(23, 23, 26, 255), shade=(15, 15, 18, 255), torso=(11, 11, 13, 255),
+            line=(0, 0, 0, 255), eye=(255, 255, 255, 255), glow=(238, 244, 26, 255), glow2=(96, 100, 16, 255),
+            trail=(255, 186, 70, 255), trail2=(236, 92, 26, 255))
+CHEST = (526, 975)        # centre of the chest tag (drawing coordinates)
+
 # --- segmentation -----------------------------------------------------------------------
 _ref = np.array(Image.open(os.path.join(HERE, 'jeff_reference.jpg')).convert('L')).astype(np.int16)
 _black = _ref < 110
@@ -85,8 +92,9 @@ class Canvas:
     outlined with 1px of black (outline drawn outside the shape, 4-connected)."""
     SS = 6
 
-    def __init__(self, w, h, ox, oy, scale):
+    def __init__(self, w, h, ox, oy, scale, line=BLACK):
         self.w, self.h, self.ox, self.oy, self.s = w, h, ox, oy, scale
+        self.outline = line
         self.img = np.zeros((h, w, 4), np.uint8)
         self.world = None   # world (drawing) -> pixel matrix, set by begin()
 
@@ -143,7 +151,7 @@ class Canvas:
             return
         if outline:
             o = ndi.binary_dilation(m, structure=ndi.generate_binary_structure(2, 1)) & ~m
-            self.img[o] = BLACK
+            self.img[o] = self.outline
         self.img[m] = color
 
     def line(self, pts_world, M=np.eye(3), color=BLACK):
@@ -166,7 +174,57 @@ DEFAULT = dict(dx=0, dy=0, rot=0, sy=1.0,
                armB=('stub', 0, 0, 0), armF=('stub', 0, 0, 0),
                eyes='open', front_arm_over=False, back_arm_over=False, blush=False, kickF=None, kickB=None)
 
-def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
+def _dark_eye(c, m, mode):
+    """the dark form's eye: white, its top cut off by a slanted line (rising toward the snout),
+    ringed by a bright yellow glow and a dim one (kept inside the silhouette)."""
+    ys, xs = np.nonzero(m)
+    if not len(xs):
+        return
+    inside = c.img[..., 3] > 0
+    four = ndi.generate_binary_structure(2, 1)
+    if mode in ('open', 'angry'):
+        # a wide oval with a flat, slanted top and a round bottom (supersampled, then thresholded)
+        k = c.s / 0.0625
+        cx, cy = xs.mean() + 0.5, ys.mean() + 0.9 * k
+        rx, ry = 4.6 * k, 4.7 * k
+        top, slope = (2.3 * k, 0.16) if mode == 'open' else (1.6 * k, 0.22)
+        n = 8
+        yy, xx = np.mgrid[0:c.h * n, 0:c.w * n]
+        fx_, fy_ = (xx + 0.5) / n, (yy + 0.5) / n
+        big = (((fx_ - cx) / rx) ** 2 + ((fy_ - cy) / ry) ** 2 <= 1) & (fy_ >= cy - top - slope * (fx_ - cx))
+        e = big.reshape(c.h, n, c.w, n).mean(axis=(1, 3)) >= 0.5
+    else:                                   # squint / knocked out: a glowing slit or cross
+        e = np.zeros_like(m)
+        cx, cy = int(round(xs.mean())), int(round(ys.mean()))
+        if mode == 'x':
+            for k in range(-2, 3):
+                for px, py in ((cx + k, cy + k), (cx + k, cy - k)):
+                    if 0 <= px < c.w and 0 <= py < c.h: e[py, px] = True
+        else:
+            for k in range(-3, 4):
+                py = cy - (1 if k > 1 else 0)
+                if 0 <= cx + k < c.w and 0 <= py < c.h: e[py, cx + k] = True
+    r1 = ndi.binary_dilation(e, structure=four) & ~e & inside
+    r2 = ndi.binary_dilation(e, iterations=2) & ~e & ~r1 & inside
+    c.img[r2] = DARK['glow2']
+    c.img[r1] = DARK['glow']
+    c.img[e] = DARK['eye']
+
+
+def _chest_tag(c, M):
+    """3x5 white tag with two black buttons, outlined in black."""
+    px, py = apply(c.world @ M, CHEST)
+    x0, y0 = int(round(px)) - 1, int(round(py)) - 2
+    for y in range(y0 - 1, y0 + 6):
+        for x in range(x0 - 1, x0 + 4):
+            if not (0 <= x < c.w and 0 <= y < c.h):
+                continue
+            edge = y in (y0 - 1, y0 + 5) or x in (x0 - 1, x0 + 3)
+            dot = x == x0 + 1 and y in (y0 + 1, y0 + 3)
+            c.img[y, x] = DARK['line'] if edge or dot else DARK['eye']
+
+
+def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None, style='white'):
     """pose keys (drawing units, 16 units = 1px at default scale):
     dx,dy,rot  whole-character offset / rotation about the feet
     sy         body squash (crouch) about the feet - head/arms/tail ride along, not squashed
@@ -177,7 +235,10 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
     fx         callback(canvas, world_matrix) to draw effect pixels on top
     """
     p = dict(DEFAULT); p.update(pose)
-    c = Canvas(w, h, ox, oy, scale)
+    dark = style == 'dark'
+    LINE = DARK['line'] if dark else BLACK
+    LIMB = DARK['limb'] if dark else FILL
+    c = Canvas(w, h, ox, oy, scale, LINE)
     c.begin((p['dx'], p['dy']), p['rot'])
     root = PIVOT['root']
     body = scl(1.0, p['sy'], root)
@@ -198,8 +259,8 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
         sh = apply(carried(name) @ trans(sdx, sdy), PIVOT[name])
         return c.mask_capsule(sh, (tx, ty), br, fr)
 
-    shade_back = SHADE
-    c.put(c.mask_from_crop('tail', part_m('tail', p['tail'])))
+    shade_back = DARK['shade'] if dark else SHADE
+    c.put(c.mask_from_crop('tail', part_m('tail', p['tail'])), LIMB)
     def foot(name, spec, kick, color):
         if kick:                                     # a kick: a leg from the hip out to the foot
             fx_, fy_, fa = kick
@@ -216,15 +277,18 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
     if not p['back_arm_over']:
         c.put(arm('armB', p['armB']), shade_back)
     if not p['front_arm_over']:
-        c.put(arm('armF', p['armF']))
-    c.put(c.mask_from_crop('body', body))
-    foot('footF', p['footF'], p['kickF'], FILL)
+        c.put(arm('armF', p['armF']), LIMB)
+    c.put(c.mask_from_crop('body', body), DARK['torso'] if dark else FILL)
+    foot('footF', p['footF'], p['kickF'], LIMB)
     hx, hy, ha = p['head']
     headM = carried('neck') @ trans(hx, hy) @ rot(ha, PIVOT['neck'])
-    c.put(c.mask_from_crop('head', headM))
+    c.put(c.mask_from_crop('head', headM), DARK['head'] if dark else FILL)
     eye = p['eyes']
     for e in ('eyeL', 'eyeR'):
         m = c.mask_from_crop(e, headM)
+        if dark:
+            _dark_eye(c, m, eye)
+            continue
         if eye == 'open':
             c.put(m, WHITE)
             continue
@@ -240,31 +304,63 @@ def render(pose, w=64, h=64, ox=32, oy=63, scale=0.0625, fx=None):
             c.pixel_line((xs.min() - 1, ys.min()), (xs.max() + 1, ys.min() + 3))
         else:
             c.pixel_line((cx - 3, cy), (cx + 3, cy - 1))
-    c.line(MOUTH, headM)
+    c.line(MOUTH, headM, LINE)
     neckM = carried('neck') @ trans(hx * 0.35, hy * 0.6)
-    c.put(c.mask_from_crop('bandana', neckM @ np.linalg.inv(carried('neck')) @ body), BLACK, outline=False)
+    c.put(c.mask_from_crop('bandana', neckM @ np.linalg.inv(carried('neck')) @ body), LINE, outline=False)
     for a, b in KNOT:
-        c.line([a, b], neckM)
+        c.line([a, b], neckM, LINE)
+    if dark:
+        _chest_tag(c, body)
     if p['back_arm_over']:
-        c.put(arm('armB', p['armB']))
+        c.put(arm('armB', p['armB']), LIMB)
     if p['front_arm_over']:
-        c.put(arm('armF', p['armF']))
+        c.put(arm('armF', p['armF']), LIMB)
     if fx:
         fx(c)
+        if dark:                                       # motion lines burn orange in the red form
+            for src, dst in (((235, 240, 255), DARK['trail']), ((170, 190, 255), DARK['trail2'])):
+                k = (c.img[..., 0] == src[0]) & (c.img[..., 1] == src[1]) & (c.img[..., 2] == src[2])
+                c.img[k] = dst
     return c.image()
 
+ARM_TIP = dict(armF=(736, 994), armB=(288, 1006))     # hand end of the drawing's arm shapes
+EYE_C = dict(eyeL=(436, 712), eyeR=(672, 692))        # eye centres (a bit low: the dark eyes are cut on top)
+
+
 def points(pose, ox, oy, scale=0.0625):
-    """pixel positions (relative to the feet) of the punching fists and the kicking foot."""
+    """pixel positions (relative to the feet) of both hands and the kicking foot, and each arm's
+    screen angle (degrees, atan2 with y down) from shoulder to hand."""
     p = dict(DEFAULT); p.update(pose)
     r = PIVOT['root']
     M = trans(ox, oy) @ scl(scale, scale) @ trans(-r[0], -r[1]) @ trans(p['dx'], p['dy']) @ rot(p['rot'], r)
+    body = scl(1.0, p['sy'], r)
+
+    def carried(pivot):
+        q = apply(body, PIVOT[pivot]); return trans(q[0] - PIVOT[pivot][0], q[1] - PIVOT[pivot][1])
+
+    def px(pt):
+        x, y = apply(M, pt); return (x - ox, y - oy)
     out = {}
     for k in ('armF', 'armB'):
-        if p[k][0] == 'fist':
-            x, y = apply(M, (p[k][1], p[k][2])); out[k] = (x - ox, y - oy)
+        spec = p[k]
+        if spec[0] == 'fist':
+            sdx, sdy = (spec[5], spec[6]) if len(spec) > 6 else (0, 0)
+            sh = apply(carried(k) @ trans(sdx, sdy), PIVOT[k]); hand = (spec[1], spec[2])
+        else:
+            _, dx, dy, a = spec
+            Mk = carried(k) @ trans(dx, dy) @ rot(a, PIVOT[k])
+            sh = apply(Mk, PIVOT[k]); hand = apply(Mk, ARM_TIP[k])
+        hx, hy = px(hand); sx, sy = px(sh)
+        out[k] = (hx, hy)
+        out[k + '_a'] = math.degrees(math.atan2(hy - sy, hx - sx))
     for k in ('kickF', 'kickB'):
         if p[k]:
-            x, y = apply(M, (p[k][0], p[k][1])); out[k] = (x - ox, y - oy)
+            out[k] = px((p[k][0], p[k][1]))
+    hx, hy, ha = p['head']
+    headM = carried('neck') @ trans(hx, hy) @ rot(ha, PIVOT['neck'])
+    out['eyeL'] = px(apply(headM, EYE_C['eyeL']))
+    out['eyeR'] = px(apply(headM, EYE_C['eyeR']))
+    out['eyes_open'] = p['eyes'] in ('open', 'angry')
     return out
 
 

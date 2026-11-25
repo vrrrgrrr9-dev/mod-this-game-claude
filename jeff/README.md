@@ -17,6 +17,34 @@ parts (head + ears + snout, eyes, body, bandana, tail, arms, feet) and re-posed 
 | Skill | **Meteor Shower**: three black holes tear open in the sky and rain meteors wrapped in dark blue flame onto the ground in front of him |
 | Down + skill | **Abyss Palm**: his palm opens a black hole that drags the opponent in, then his punch detonates it |
 | **Shield + skill together** (full energy bar) | **Bone Breaker**: Jeff dashes and grabs the nearest enemy, X-ray cutscene (arm CRACK, ribs SNAP, spine CRUNCH, skull CRACK, K.O.), the opponent's HP is set to **0** |
+| **Double-tap shield** | **Switch power**: blue (dark flame) <-> red (the sun). Blue fire spins up round him and turns to sun fire, and he turns black from the feet up: the red-power form (see below). Double-tap again to go back. |
+| **Double-tap skill** (full bar) | **RED BLACK HOLE** cinematic: a black hole ringed in sun fire opens over the opponent, pulls them up, stretches them thin and swallows them, then bursts. **K.O.** (HP set to 0) |
+| **Double-tap shield + double-tap skill together** (full bar) | **HOLLOW PURPLE** cinematic: blue in one hand, red in the other, he merges them into a purple orb, flicks it, a purple nuclear blast, then he strikes a pose. **K.O.** |
+
+In the **red power** he fights with a **sun sword** (front hand) and a **sun shield** (back hand):
+
+| Input (red power) | Move |
+|---|---|
+| Attack A | **Sun sword**: slash -> rising slash -> thrust -> spin slash -> solar cleave (knockdown) |
+| Attack B | **Sun shield**: shield bash -> shield uppercut (launches) -> shield charge -> sun slam (knockdown, shock ring) |
+| Down / air attacks | the same blows as blue, burning with sun fire |
+| Shield | raises the sun shield |
+| Skill | **Solar Flare**: a crescent of sun fire flies across the screen (5 hits) |
+| Down + skill | **Corona**: the sun on his shield flares and blasts both sides, with shock rings |
+
+With a full bar, one skill tap waits about a quarter of a second (16 frames) to see if a second
+tap follows. One tap then gives the normal skill (down is remembered, so down + skill still gives
+skill 2), or the Bone Breaker if shield was held. A double tap gives a cinematic. Both cinematics
+make Jeff untouchable while they play. The K.O. lands as the fight fades back in, the same way as
+the Bone Breaker.
+
+**The red-power form** is the user's "dark Jeff" drawing: the same body gone black, glowing white
+eyes with a flat top, ringed in yellow, and a white chest tag with two black buttons. Every body
+animation has a black copy (`jeff_d_*.png`, rendered by `rig.py` in its `dark` style). The game's
+logic always sees the normal sprite. Only the draw swaps in the black copy, so every state
+(hurt, knocked down, jumping...) has the right form without touching the framework. The eyes also
+get a soft additive glow, and the HUD portrait switches to a black-form card (`jeff_face_d.png`).
+The transformation draws the new form row by row from his feet up, with a band of fire at the edge.
 
 The flame is blue fire with darkness flowing inside it, in pixel art (`art/flame.py`: a 5-colour
 palette from black-indigo to white-cyan, ordered dithering, hard edges, a dark rim). The game draws
@@ -25,7 +53,8 @@ per frame. The black holes and meteors use the same pixel style. Jeff himself ke
 look from the drawing.
 
 Stats (edit in `src/jeff.c`, `gml_Object_o_jeff_Create_0`): HP 2300, damage 46, walk 3.2, run 7.4,
-skill costs 55 / 45. The special needs a full energy bar and costs all of it.
+skill costs 55 / 45 (same in both powers). The three finishers (Bone Breaker, Red Black Hole, Hollow
+Purple) each need a full energy bar and cost all of it.
 
 ## How it is wired into the game
 
@@ -50,10 +79,13 @@ technique, chained on top of the mod:
 * `build/elfpatch.py` — adds two PT_LOAD segments (code @ `0x3600000`, data/bss @ `0x3700000`),
   relocates the program header table and patches 4 branches (each verified first).
 * `build/droidpatch.py` — adds object `o_jeff` (#685, parent `o_parent_character`) to `game.droid`.
-* `art/` — everything is generated: `anims.py` (body, including the kicking legs from `rig.py`),
-  `flame.py` (the dark flame, meteors and black holes), `vfx.py` (Bone Breaker effects),
-  `cutscene.py` (Bone Breaker), `face.py` (portrait card using the game's card frame), `sfx.py`
-  (bone cracks, KO, flame, meteor, black hole). Other sounds are the game's own.
+* `art/` — everything is generated: `anims.py` (body in both forms, including the kicking legs
+  from `rig.py`, and the sun sword's angle per frame), `flame.py` (the dark flame, meteors and
+  black holes, in blue / sun / purple palettes), `sun.py` (sun sword and shield, Solar Flare,
+  transformation swirl, and the art of both cinematics: red black hole, blue/red/purple orbs,
+  nuclear blast, shock ring, skies), `vfx.py` + `cutscene.py` (Bone Breaker), `face.py` (portrait
+  card using the game's card frame), `sfx.py` (bone cracks, KO, flame, meteor, black hole, power
+  switch, nuclear blast). Other sounds are the game's own.
 
 ## Build
 
@@ -73,7 +105,8 @@ they differ. To compare any two APKs: `python build/apksig.py old.apk new.apk`.
 
 `tests/emu_test.py` runs the injected code under Unicorn with a mocked engine (table registration,
 menu + select hooks incl. the online select gating, create, both combos, both skills, the special,
-destroy):
+the power switch both ways, the red combos and skills, both cinematics and their K.O., the tap
+timing, the CPU's finishers, destroy):
 
 ```
 pip install unicorn
@@ -87,9 +120,10 @@ python tests/emu_test.py out/libyoyo.so out/gen/jeff.elf out/gen/engine.ld
   unchanged, the original Coco APK can also be installed back over it the same way.
 * Built and checked statically + in emulation only; it has not been run on a phone yet. Try the
   update on one phone with a test account before sending it out.
-* Jeff is offline only. He doesn't appear in online/LAN character select: other players' games
-  don't have him, and an instant-KO special isn't fair against real players. Online play itself
-  is not changed.
+* Jeff is offline only, and so is Scyther. Neither appears in online/LAN character select: other
+  players' games don't have them, and the instant-KO finishers aren't fair against real players.
+  Online play itself is not changed. The Coco build also carries the cheat menu, so this mod does
+  not open online play to modded clients.
 
 ## Black Holing Scyther (char id 1006, object 686)
 
@@ -156,9 +190,13 @@ never holds shield and skill together. The likely cause is that the CPU's short 
 and it could never use a shield + skill special. This is not confirmed on a phone. Both characters
 now:
 
-* lunge toward an opponent up to ~170 px in front at the start of each melee move. This also turns
-  them round when the opponent is right behind.
+* step in a little at the start of each melee move, only toward an opponent close in front (Jeff:
+  within 90 px, at most 40 px over 6 frames; Scyther: within its reach + 60 px, at most 45 px).
+  They turn round only when the opponent is right behind. (An earlier version lunged from up to
+  ~170 px away, which looked like a random dash at the start of an attack; reported from play and
+  toned down.)
 * use their special when the CPU (`plr_controller == 2`) presses skill with a full bar and an
-  opponent in reach.
+  opponent in reach. CPU Jeff picks one of his three finishers at random. The CPU may also
+  double-tap shield and switch his power, then not again for 600 frames.
 
 The emulator test covers both, for Scyther and for Jeff. It has not been checked on a phone yet.

@@ -5,14 +5,16 @@ usage: python build_art.py <outdir>
 import os, shutil, sys
 from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import manifest, anims, flame, vfx, cutscene, face, sfx
+import manifest, anims, flame, sun, vfx, cutscene, face, sfx
 
 
 def main(out):
     os.makedirs(out, exist_ok=True)
     anims.build(out)                             # body animations + preview + jeff_frames.json
     face.card().save(os.path.join(out, 'jeff_face.png'))
+    face.card(True).save(os.path.join(out, 'jeff_face_d.png'))  # HUD card in the red power
     flame.build(out)                             # dark blue flame effects
+    sun.build(out)                               # red sun power + the two cinematics
     for name in ('sp_impact', 'sp_dash'):
         vfx.ALL[name]().save(os.path.join(out, f'jeff_{name}.png'))
     cutscene.render_all(out)
@@ -23,6 +25,8 @@ def main(out):
     sfx.write_ogg(sfx.flame(), os.path.join(out, 'jeff_flame.ogg'))
     sfx.write_ogg(sfx.meteor(), os.path.join(out, 'jeff_meteor.ogg'))
     sfx.write_ogg(sfx.hole(), os.path.join(out, 'jeff_hole.ogg'))
+    sfx.write_ogg(sfx.power(), os.path.join(out, 'jeff_power.ogg'))
+    sfx.write_ogg(sfx.nuke(), os.path.join(out, 'jeff_nuke.ogg'))
     SPRITES = manifest.sprites(out)
 
     # validate against the manifest the C code is generated from

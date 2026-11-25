@@ -114,6 +114,24 @@ def hole(dur=1.4):
     return x / max(1e-6, np.abs(x).max()) * 0.8
 
 
+def power(dur=0.9):
+    """the power switch: a rising roar of fire that snaps into a bright chord."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    rise = bandnoise(n, 200, 2400) * np.clip(t / 0.55, 0, 1) ** 2 * np.where(t < 0.6, 1, np.exp(-(t - 0.6) / 0.15))
+    chord = sum(np.sin(2 * np.pi * f * t) for f in (220, 277, 330, 440)) * np.where(t > 0.55, np.exp(-(t - 0.55) / 0.25), 0) * 0.4
+    x = rise + chord
+    return x / max(1e-6, np.abs(x).max()) * 0.8
+
+
+def nuke(dur=2.4):
+    """the purple blast: a cracking flash, a huge low boom and a long rumble."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    crack = bandnoise(n, 2000, 9000) * np.exp(-t / 0.05) * 2
+    boom = (bandnoise(n, 20, 300) * 2.5 + np.sin(2 * np.pi * (60 - 30 * np.clip(t, 0, 1)) * t)) * np.exp(-t / 0.9)
+    x = crack + boom
+    return x / max(1e-6, np.abs(x).max()) * 0.9
+
+
 def write_ogg(x, path):
     x = x / max(1e-6, np.abs(x).max()) * 0.92
     pcm = (x * 32767).astype(np.int16)
