@@ -245,7 +245,10 @@ static void play_c(CInstance *s, int which, double pitch) {
 }
 static void play(CInstance *s, int snd, double pitch) { play_v(s, snd, pitch); }
 
+static int g_blend_cur = -1;              /* the blend mode we last set in this draw event (-1: unknown) */
 static void blend(CInstance *s, int mode) {
+    if (mode == g_blend_cur) return;      /* nothing between our calls changes it: no flush for nothing */
+    g_blend_cur = mode;
     RValue r = rv_undef(); RValue a = rv_real(mode);
     F_GPUSetBlendMode(&r, s, s, 1, &a);
     rv_free(&r);
@@ -870,11 +873,14 @@ static void parts_step(Grey *j) {
 }
 static int glitch_col(void) { unsigned r = rnd() % 4; return r == 0 ? C_WHITE : r == 1 ? C_MAG : C_CYAN; }
 static void parts_draw(CInstance *s, Grey *j, int additive) {
+    /* two groups per pass, one texture each (additive: shapes, then bits; normal: smoke under the pixels) */
+    for (int grp = 0; grp < 2; grp++)
     for (int i = 0; i < N_PART; i++) {
         Part *p = &j->pt[i];
         if (!p->on) continue;
         int add = p->kind != PK_PIXEL && p->kind != PK_SMOKE && p->kind != PK_SHARD;
         if (add != additive) continue;
+        if ((additive ? p->kind == PK_BIT : p->kind != PK_SMOKE) != grp) continue;
         float u = (float)p->t / p->life, a = p->a0 * (1 - u * u);
         switch (p->kind) {
         case PK_SPARK: case PK_STREAK: {
@@ -994,17 +1000,16 @@ static void mark(Grey *j, int kind, float x, float y, float w, int life) {
 }
 static void marks_step(Grey *j) { for (int i = 0; i < N_MARK; i++) if (j->mk[i].on && ++j->mk[i].t >= j->mk[i].life) j->mk[i].on = 0; }
 static void marks_draw(CInstance *s, Grey *j) {
-    for (int i = 0; i < N_MARK; i++) {
-        Mark *m = &j->mk[i];
-        if (!m->on) continue;
-        float a = 1 - (float)m->t / m->life;
-        if (m->kind == 0) spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.16f / 32.0f, 0, RGB(30, 18, 14), 0.55f * a);
-        else {
-            blend(s, 1);
-            spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.18f / 32.0f, 0, C_ICE, 0.35f * a);
-            blend(s, 0);
+    for (int kind = 0; kind < 2; kind++) {                   /* scorch (normal), then frost (additive) */
+        for (int i = 0; i < N_MARK; i++) {
+            Mark *m = &j->mk[i];
+            if (!m->on || m->kind != kind) continue;
+            float a = 1 - (float)m->t / m->life;
+            if (kind == 0) spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.16f / 32.0f, 0, RGB(30, 18, 14), 0.55f * a);
+            else { blend(s, 1); spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.18f / 32.0f, 0, C_ICE, 0.35f * a); }
         }
     }
+    blend(s, 0);
 }
 
 /* the moment a blow lands: a star, sparks, speed lines out from the hit, a flash, element bits */
@@ -1552,6 +1557,7 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
 void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
     (void)o;
     Grey *j = slot(s, true);
+    g_blend_cur = -1;
     float x = sx_(s), y = sy_(s), f = facing(s);
     float al = (float)sget(s, &g_VAR_image_alpha);
     if (!(al > 0.01f) || al > 1) al = 1;
@@ -1573,25 +1579,35 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
     }
     trails_draw(s, j, (j->move != MOVE_NONE || j->sp_on) ? 1.0f : 0.7f);   /* ribbons where limbs swept */
     blend(s, 0);
-    for (int i = 0; i < N_CLONE; i++) {                      /* clones: holograms */
-        Clone *c = &j->cl[i];
+    /* clones: holograms. Drawn layer by layer across all of them, so the blend mode changes only a
+       few times a frame instead of several times per clone */
+    GPose cp[N_CLONE]; float cxs[N_CLONE], cas[N_CLONE]; const Clone *cls[N_CLONE]; int nc = 0;
+    for (int i = 0; i < N_CLONE; i++) {
+        const Clone *c = &j->cl[i];
         if (!c->on) continue;
-        GPose p; tl_sample(c->tl, (float)c->t, &p);
+        tl_sample(c->tl, (float)c->t, &cp[nc]);
         float ca = c->fade ? 0.85f * (1 - c->fade / 8.0f) : (c->t < 4 ? 0.85f * c->t / 4.0f : 0.85f);
         ca *= 0.8f + 0.2f * (float)((g_grey_tick + i) % 4 != 0);           /* flicker */
         float jit = (c->fade || c->t < 4) ? frand(-2, 2) : 0;
-        float cx = c->x + c->f * p.mx + jit;
+        cxs[nc] = c->x + c->f * cp[nc].mx + jit; cas[nc] = ca; cls[nc] = c; nc++;
+    }
+    if (nc) {
         blend(s, 1);
-        g_extra_w = 7.0f;
-        draw_stick(s, &p, cx, c->y, c->f, C_CYAN, C_CYAN, C_CYAN, 0.3f * ca, 0);
+        g_extra_w = 7.0f;                                     /* their glow */
+        for (int k = 0; k < nc; k++) draw_stick(s, &cp[k], cxs[k], cls[k]->y, cls[k]->f, C_CYAN, C_CYAN, C_CYAN, 0.3f * cas[k], 0);
         g_extra_w = 0;
-        blend(s, 0);
-        draw_glitched(s, &p, cx, c->y, c->f, C_CLONE, C_CLONEB, C_CLONEL, ca, 1.6f);
-        blend(s, 1);
-        for (int k = 0; k < 3; k++) {                       /* scanlines running down him */
-            float sy = c->y - 62 + (float)(((g_grey_tick * 2 + k * 21) % 66));
-            spr(s, GR_SHAPE, 0, cx, sy, 30 / 32.0f, 1 / 32.0f, 0, C_CYAN, 0.35f * ca);
+        for (int k = 0; k < nc; k++) {                       /* the RGB split */
+            draw_stick(s, &cp[k], cxs[k] - 1.6f, cls[k]->y, cls[k]->f, C_CYAN, C_CYAN, C_CYAN, cas[k] * 0.45f, 0);
+            draw_stick(s, &cp[k], cxs[k] + 1.6f, cls[k]->y, cls[k]->f, C_MAG, C_MAG, C_MAG, cas[k] * 0.45f, 0);
         }
+        blend(s, 0);
+        for (int k = 0; k < nc; k++) draw_stick(s, &cp[k], cxs[k], cls[k]->y, cls[k]->f, C_CLONE, C_CLONEB, C_CLONEL, cas[k], 1);
+        blend(s, 1);
+        for (int k = 0; k < nc; k++)                          /* scanlines running down them */
+            for (int l = 0; l < 3; l++) {
+                float sy = cls[k]->y - 62 + (float)(((g_grey_tick * 2 + l * 21) % 66));
+                spr(s, GR_SHAPE, 0, cxs[k], sy, 30 / 32.0f, 1 / 32.0f, 0, C_CYAN, 0.35f * cas[k]);
+            }
         blend(s, 0);
     }
     /* Grey: a neon glow round him, then the stickman, then the glitch */
@@ -1627,37 +1643,39 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
         if (g_grey_tick % 2 == 0)
             spr(s, GR_GLITCH, (float)(g_grey_tick % 8), x + frand(-10, 10), y - frand(12, 56), 0.4f, 0.4f, 0, C_WHITE, 0.9f);
     }
-    /* projectiles, each with a glow */
+    /* projectiles: all their glows first (additive), then the projectiles */
+    for (int i = 0; i < N_PROJ; i++) {
+        Proj *p = &j->pr[i];
+        if (!p->on) continue;
+        blend(s, 1);
+        spr(s, GR_SHAPE, 1, p->x, p->y, 0.7f, 0.7f, 0, p->kind == GP_FIRE ? C_FIRE : p->kind == GP_SHARD ? C_ICE : C_CYAN, 0.35f);
+    }
+    for (int i = 0; i < N_PROJ; i++) {
+        Proj *p = &j->pr[i];
+        if (p->on && p->kind != GP_FIRE && p->kind != GP_SHARD) spr(s, GR_SPAWN, 2, p->x, p->y + 30, 0.5f, 0.4f, 0, C_CYAN, 0.4f);
+    }
+    blend(s, 0);
     for (int i = 0; i < N_PROJ; i++) {
         Proj *p = &j->pr[i];
         if (!p->on) continue;
         float ang = -atan2f_(p->vy, p->vx) * 57.29578f;
-        blend(s, 1);
-        spr(s, GR_SHAPE, 1, p->x, p->y, 0.7f, 0.7f, 0, p->kind == GP_FIRE ? C_FIRE : p->kind == GP_SHARD ? C_ICE : C_CYAN, 0.35f);
-        blend(s, 0);
-        if (p->kind == GP_FIRE) {
-            spr(s, GR_FIRE, (float)((p->t / 2) % 8), p->x, p->y, 0.5f, 0.5f, ang, C_WHITE, 1);
-        } else if (p->kind == GP_SHARD) {
-            spr(s, GR_SHARD, (float)((p->t / 2) % 4), p->x, p->y, 1, 1, 0, C_WHITE, 1);
-        } else {
-            spr(s, GR_SPEAR, (float)((p->t / 2) % 4), p->x, p->y, 1, 1, ang, C_WHITE, 1);
-            blend(s, 1);
-            spr(s, GR_SPAWN, 2, p->x, p->y + 30, 0.5f, 0.4f, 0, C_CYAN, 0.4f);
-            blend(s, 0);
-        }
+        if (p->kind == GP_FIRE) spr(s, GR_FIRE, (float)((p->t / 2) % 8), p->x, p->y, 0.5f, 0.5f, ang, C_WHITE, 1);
+        else if (p->kind == GP_SHARD) spr(s, GR_SHARD, (float)((p->t / 2) % 4), p->x, p->y, 1, 1, 0, C_WHITE, 1);
+        else spr(s, GR_SPEAR, (float)((p->t / 2) % 4), p->x, p->y, 1, 1, ang, C_WHITE, 1);
     }
     blend(s, 1);
     bolts_draw(s, j);                                        /* lightning */
     parts_draw(s, j, 1);                                     /* sparks, embers, frost, streaks, bits */
     blend(s, 0);
     parts_draw(s, j, 0);                                     /* pixels, smoke, ice chips */
-    for (int i = 0; i < N_FX; i++) {                         /* one-shot effects */
-        Fx *e = &j->fx[i];
-        if (!e->on) continue;
-        if (e->add) blend(s, 1);
-        spr(s, e->a, (float)(e->t / e->tpf), e->x, e->y, e->xs, e->ys, e->rot, e->col, 1);
-        if (e->add) blend(s, 0);
-    }
+    for (int add = 0; add < 2; add++)                        /* one-shot effects: normal, then additive on top */
+        for (int i = 0; i < N_FX; i++) {
+            Fx *e = &j->fx[i];
+            if (!e->on || (e->add != 0) != add) continue;
+            blend(s, add);
+            spr(s, e->a, (float)(e->t / e->tpf), e->x, e->y, e->xs, e->ys, e->rot, e->col, 1);
+        }
+    blend(s, 0);
     if (j->fail_t > 0)
         spr(s, GR_ERROR, (float)(j->fail_t % 4), x, y - 76, 0.6f, 0.6f, 0, 0x5555FF, j->fail_t / 24.0f);
 }
@@ -1667,6 +1685,7 @@ void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     (void)o;
     Grey *j = slot(s, false);
     if (!j || (!j->sp_on && j->scr_t <= 0)) return;
+    g_blend_cur = -1;
     float gw = (float)legacy0(s, &g_FUNC_display_get_gui_width);
     float gh = (float)legacy0(s, &g_FUNC_display_get_gui_height);
     if (gw < 16 || gh < 16) return;

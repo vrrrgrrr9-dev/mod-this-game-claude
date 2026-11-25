@@ -198,7 +198,10 @@ def st_stream():
     a = args_rv(1, X(4)); sid = next_snd[0]; next_snd[0] += 1; sounds[sid] = a[0][1]; rv_write(X(0), sid)
 def st_play(): a = args_rv(W(3), X(4)); calls.append(('play', a[0][1])); rv_write(X(0), 77)
 def st_noop_ret(): rv_write(X(0), None) if X(0) else None
-def st_blend(): a = args_rv(1, X(4)); state['blend'] = a[0][1]; rv_write(X(0), None)
+def st_blend():
+    a = args_rv(1, X(4))
+    if state.get('blend') != a[0][1]: calls.append(('blend_switch',))
+    state['blend'] = a[0][1]; rv_write(X(0), None)
 def st_objspr(): a = args_rv(2, X(4)); calls.append(('object_set_sprite', a[0][1], a[1][1])); rv_write(X(0), None)
 def st_icreate():
     a = args_rv(4, X(4)); i = new_inst(int(a[3][1])); i.set('x', a[0][1]); i.set('y', a[1][1])
@@ -1083,7 +1086,7 @@ gtick(gui=True)
 gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
 check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar spent, untouchable')
 check(grey.get('depth') == -15000, 'drawn over the HUD')
-seen, hits, spawns, blue, bad, maxd = set(), [], 0, 0, False, 0
+seen, hits, spawns, blue, bad, maxd, maxb = set(), [], 0, 0, False, 0, 0
 for t in range(200):
     calls.clear(); gtick(gui=True)
     seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
@@ -1091,6 +1094,7 @@ for t in range(200):
     blue += sum(1 for c in calls if c[0] == 'colour' and c[1] == (16 | 44 << 8 | 178 << 16))
     bad |= any(c[0] in GBAD for c in calls)
     maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'prim_end')))
+    maxb = max(maxb, sum(1 for c in calls if c[0] == 'blend_switch'))
     if t < 150: check_x = gfoe.get('x')
 check(len(hits) >= 13, f'twelve clone strikes and the blade: {len(hits)} hits')
 check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 'grey_fireburst.png', 'grey_spike.png',
@@ -1099,6 +1103,7 @@ check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 
 check(blue >= 3, f'the blue screen of death flashes after the blade ({blue} frames)')
 check(not bad, 'no invalid draws or primitives during the special')
 check(maxd < 1400, f'draw calls per frame stay bounded (max {maxd})')
+check(maxb <= 24, f'blend-mode switches per frame stay few, so draws batch (max {maxb})')
 check(abs(check_x - 470) < 1, 'the opponent is held in place until the blade')
 check(gr_ctrl.get('can_gethurt') == 1 and grey.get('depth') != -15000, 'vulnerable again, depth restored')
 calls.clear(); gtick()
