@@ -227,3 +227,93 @@ void jeff_charsel_ext(CInstance *s) {
     charsel_add(SCY_CHAR_ID);
     charsel_add(JEFF_CHAR_ID);
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Cheats: local fights only.
+ *
+ * The Coco build's Cheats dialog (Java, com.coco.transfer.ModSettings) has nine switches: Infinite
+ * Mana, No Skill Cooldown, Chicken Characters, Infinite Money, Everything Unlocked, Infinite XP,
+ * Infinite HP & One-Tap KO, Absolute Immunity, Infinite Dash & Jump. They are bits 0..8 of one word
+ * in the mod's data (0x3060000, default 0x1f), written only by the JNI method
+ * TransferBridge.nativeSetCheats and read by every cheat in the mod's native code.
+ *
+ * We keep the player's choice ourselves and make the word the game reads 0 while in online / LAN
+ * play (global.game_gm == 2), and the choice otherwise:
+ *  - nativeSetCheats (0x3055e50) branches to jeff_cheats_set. It runs on the Android UI thread, so
+ *    it touches no game state: it stores the choice and applies it unless the game thread last saw
+ *    online mode;
+ *  - every frame, before the game runs it, RunnerJNILib.Process (0xaeb6a4) goes through
+ *    jeff_process_hook, which re-applies the choice for the current mode (jeff_frame);
+ *  - the pause menu's Cheats button is not drawn while online (jeff_cheat_button_pause). The one in
+ *    the settings menu stays: switches flipped there apply in local fights.
+ * ------------------------------------------------------------------------------------------- */
+#define CHEAT_BITS 0x1ffu                    /* the nine switches (nativeSetCheats masks the same) */
+#define COCO_CHEATS_DEFAULT 0x1fu            /* the word's value in the Coco build (checked by elfpatch) */
+extern unsigned coco_cheat_word;             /* jeff.ld: the mod's cheat word */
+static unsigned g_cheats_user = COCO_CHEATS_DEFAULT;   /* what the player picked */
+int g_cheats_online;                         /* online as last seen by the game thread (read by the shim below) */
+
+static void cheats_put(unsigned v) { __atomic_store_n(&coco_cheat_word, v, __ATOMIC_RELEASE); }
+
+/* JNI: void TransferBridge.nativeSetCheats(int) - the dialog's switches */
+void jeff_cheats_set(void *env, void *cls, int mask) {
+    (void)env; (void)cls;
+    unsigned m = (unsigned)mask & CHEAT_BITS;
+    __atomic_store_n(&g_cheats_user, m, __ATOMIC_RELEASE);
+    cheats_put(__atomic_load_n(&g_cheats_online, __ATOMIC_ACQUIRE) ? 0 : m);
+}
+
+/* once a frame, on the game thread, before the frame's events run */
+void jeff_frame(void) {
+    int on = online_mode();
+    __atomic_store_n(&g_cheats_online, on, __ATOMIC_RELEASE);
+    cheats_put(on ? 0 : __atomic_load_n(&g_cheats_user, __ATOMIC_ACQUIRE));
+}
+
+/* RunnerJNILib.Process entry: its first instruction (str d10, [sp, #-0x80]!) is replaced by a branch
+   here. Keep every argument register, run jeff_frame, then do that instruction and carry on. */
+__asm__(
+    "    .text\n"
+    "    .global jeff_process_hook\n"
+    "    .type jeff_process_hook, %function\n"
+    "    .p2align 2\n"
+    "jeff_process_hook:\n"
+    "    stp x29, x30, [sp, #-0xa0]!\n"
+    "    mov x29, sp\n"
+    "    stp x0, x1, [sp, #0x10]\n"
+    "    stp x2, x3, [sp, #0x20]\n"
+    "    stp x4, x5, [sp, #0x30]\n"
+    "    stp x6, x7, [sp, #0x40]\n"
+    "    stp d0, d1, [sp, #0x50]\n"
+    "    stp d2, d3, [sp, #0x60]\n"
+    "    stp d4, d5, [sp, #0x70]\n"
+    "    stp d6, d7, [sp, #0x80]\n"
+    "    str x8, [sp, #0x90]\n"
+    "    bl jeff_frame\n"
+    "    ldr x8, [sp, #0x90]\n"
+    "    ldp d6, d7, [sp, #0x80]\n"
+    "    ldp d4, d5, [sp, #0x70]\n"
+    "    ldp d2, d3, [sp, #0x60]\n"
+    "    ldp d0, d1, [sp, #0x50]\n"
+    "    ldp x6, x7, [sp, #0x40]\n"
+    "    ldp x4, x5, [sp, #0x30]\n"
+    "    ldp x2, x3, [sp, #0x20]\n"
+    "    ldp x0, x1, [sp, #0x10]\n"
+    "    ldp x29, x30, [sp], #0xa0\n"
+    "    str d10, [sp, #-0x80]!\n"          /* the instruction the branch replaced */
+    "    b runner_process_cont\n"           /* Process + 4 */
+    "    .size jeff_process_hook, .-jeff_process_hook\n"
+    "\n"
+    /* the pause menu's Cheats button (a call to the mod's button routine): skipped while online.
+       Only x16 (a call-scratch register) is used, so the button's arguments pass through untouched. */
+    "    .global jeff_cheat_button_pause\n"
+    "    .type jeff_cheat_button_pause, %function\n"
+    "    .p2align 2\n"
+    "jeff_cheat_button_pause:\n"
+    "    adrp x16, g_cheats_online\n"
+    "    ldr w16, [x16, :lo12:g_cheats_online]\n"
+    "    cbnz w16, 1f\n"
+    "    b coco_cheat_button\n"
+    "1:  ret\n"
+    "    .size jeff_cheat_button_pause, .-jeff_cheat_button_pause\n"
+);

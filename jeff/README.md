@@ -77,7 +77,8 @@ technique, chained on top of the mod:
   `scr_combos_*` / `scr_alarm2_combo`), melee hits use the game's `scr_combo_normal`, projectiles
   spawn `o_mask_hit` hitboxes, so blocking, knockback and KO work like for everyone else.
 * `build/elfpatch.py` — adds two PT_LOAD segments (code @ `0x3600000`, data/bss @ `0x3700000`),
-  relocates the program header table and patches 4 branches (each verified first).
+  relocates the program header table and patches 5 branches plus 2 instructions (the cheat
+  setter and the per-frame `RunnerJNILib.Process` entry), each verified first.
 * `build/dexpatch.py` — the user's save-recovery fix in the Coco mod's Java code (`classes5.dex`,
   `com.coco.transfer.SaveStore.recover`). It removes the half-written tree instead of throwing
   "The save recovery copy is missing.". It is 15 bytes patched in place, with the DEX checksum and
@@ -129,8 +130,17 @@ python tests/emu_test.py out/libyoyo.so out/gen/jeff.elf out/gen/engine.ld
   update on one phone with a test account before sending it out.
 * Jeff, Scyther and Grey are offline only. None of them appears in online/LAN character select:
   other players' games don't have them, and the instant-KO finishers aren't fair against real players.
-  Online play itself is not changed. The Coco build also carries the cheat menu, so this mod does
-  not open online play to modded clients.
+  Online play itself is not changed.
+* **Cheats work in local fights only.** The Coco build's Cheats menu (Infinite Mana, No Skill
+  Cooldown, Chicken Characters, Infinite Money, Everything Unlocked, Infinite XP, Infinite HP &
+  One-Tap KO, Absolute Immunity, Infinite Dash & Jump) keeps its switches, but in online / LAN play
+  (`global.game_gm == 2`) all of them are off, and the pause menu has no Cheats button there.
+  Back in a local mode, the switches apply again, including ones flipped in the meantime. How:
+  the mod keeps the switches in one word (`0x3060000`, bits 0..8) written only by the JNI method
+  `nativeSetCheats`; that method now branches to `jeff_cheats_set`, which stores the player's
+  choice, and `RunnerJNILib.Process` (once a frame, before the game runs) goes through
+  `jeff_process_hook`, which sets the word to 0 online and to the choice otherwise (`src/hooks.c`).
+  The patched sites are checked instruction by instruction before patching (`build/elfpatch.py`).
 
 ## Black Holing Scyther (char id 1006, object 686)
 

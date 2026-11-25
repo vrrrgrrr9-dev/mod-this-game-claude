@@ -7,6 +7,9 @@ INCLUDE engine.ld
 mod_initllvm_hook = 0x3000000;
 mod_get_char_hook = 0x3044a70;
 mod_charsel_ext   = 0x3043880;
+coco_cheat_button = 0x303c3d0;      /* the mod's button routine (Cheats buttons) */
+coco_cheat_word   = 0x3060000;      /* the mod's cheat switches (bits 0..8) */
+runner_process_cont = 0xaeb6a8;     /* RunnerJNILib_Process + 4 */
 
 PHDRS {
     text PT_LOAD FLAGS(5);

@@ -100,6 +100,7 @@ def main():
         (0x13b89a0, 0x3044a70, False, 'jeff_get_char'),      # scr_menu_get_char entry (mod hook)
         (0x3043844, 0x3043880, True, 'jeff_charsel_ext'),    # mod charsel hook: 1st list rebuild
         (0x3043860, 0x3043880, True, 'jeff_charsel_ext'),    # mod charsel hook: 2nd list rebuild
+        (0x303d640, 0x303c3d0, True, 'jeff_cheat_button_pause'),  # pause menu: the Cheats button
     ]
     for va, exp, is_bl, name in patches:
         off = va2off(ph2, va)
@@ -109,6 +110,25 @@ def main():
             sys.exit(f'unexpected instruction at {va:#x}: {w:#010x} (target {tgt}); is this the WOTU_COCO69 libyoyo.so?')
         struct.pack_into('<I', d, off, enc_b(va, sym[name], is_bl))
         print(f'patched {va:#x}: -> {name} @ {sym[name]:#x}')
+
+    # cheats for local fights only (src/hooks.c): an instruction replaced by a branch, each site
+    # checked word for word first
+    raw = [
+        # nativeSetCheats: adrp x8,0x3061000; and w9,w2,#0x1ff; ldr x8,[x8,#0x778]; stlr w9,[x8]; ret
+        (0x3055e50, [0x90000068, 0x12002049, 0xf943bd08, 0x889ffd09, 0xd65f03c0], 'jeff_cheats_set'),
+        # RunnerJNILib_Process: str d10,[sp,#-0x80]!; stp d9,d8,[sp,#0x10]  (the hook replays the first)
+        (0xaeb6a4, [0xfc180fea, 0x6d0123e9], 'jeff_process_hook'),
+    ]
+    for va, words, name in raw:
+        off = va2off(ph2, va)
+        got = list(struct.unpack_from(f'<{len(words)}I', d, off))
+        if got != words:
+            sys.exit(f'unexpected code at {va:#x}: {[hex(w) for w in got]}; is this the WOTU_COCO69 libyoyo.so?')
+        struct.pack_into('<I', d, off, enc_b(va, sym[name]))
+        print(f'patched {va:#x}: b {name} @ {sym[name]:#x}')
+    cheat_word, = struct.unpack_from('<I', d, va2off(ph2, 0x3060000))
+    if cheat_word != 0x1f:                         # COCO_CHEATS_DEFAULT in src/hooks.c
+        sys.exit(f'the Coco cheat word defaults to {cheat_word:#x}, expected 0x1f')
 
     open(dst, 'wb').write(d)
     print(f'RX {rx[3]:#x} off {rx_off:#x} size {rx[5]:#x}; RW {rw[3]:#x} off {rw_off:#x} '

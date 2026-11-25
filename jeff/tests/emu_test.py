@@ -427,6 +427,59 @@ call('jeff_charsel_ext', menu.ptr)
 check([glob.arr.get(('charord', i)) for i in (1, 2, 3)] == [1005, 1006, 1007] and glob.get('chars_num') == 6,
       'back offline (game_gm 1): all three listed again')
 
+print('[3c] cheats: local fights only (global.game_gm == 2 turns them all off)')
+CHEAT_WORD = BASE + 0x3060000
+def cheat_word(): return struct.unpack('<I', uc.mem_read(CHEAT_WORD, 4))[0]
+def call_at(va, *args):
+    for i, a in enumerate(args): uc.reg_write(UC_ARM64_REG_X0 + i, a)
+    uc.reg_write(UC_ARM64_REG_SP, STACK + STACK_SZ - 0x100); uc.reg_write(UC_ARM64_REG_LR, RET_MAGIC)
+    uc.reg_write(UC_ARM64_REG_X18, 0)
+    uc.emu_start(BASE + va, RET_MAGIC, count=5_000_000)
+def branch_at(va):
+    w = struct.unpack('<I', uc.mem_read(BASE + va, 4))[0]
+    imm = w & 0x3ffffff
+    if imm & 0x2000000: imm -= 0x4000000
+    return (w & 0x7c000000) == 0x14000000, bool(w >> 31), va + imm * 4
+check(branch_at(0x3055e50) == (True, False, J['jeff_cheats_set']), 'nativeSetCheats -> jeff_cheats_set')
+check(branch_at(0xaeb6a4) == (True, False, J['jeff_process_hook']), 'RunnerJNILib_Process entry -> jeff_process_hook')
+check(branch_at(0x303d640) == (True, True, J['jeff_cheat_button_pause']), "pause menu's Cheats button -> jeff_cheat_button_pause")
+check(cheat_word() == 0x1f, 'the Coco default (0x1f) is in place at start')
+glob.set('game_gm', 1.0)
+call('jeff_frame')
+check(cheat_word() == 0x1f, 'offline: the default stays on')
+call_at(0x3055e50, 0, 0, 0xfc1)               # the dialog: mana, HP/one-tap, immunity, dash (+ junk bits)
+check(cheat_word() == 0x1c1, f'offline: switches apply at once ({cheat_word():#x})')
+glob.set('game_gm', 2.0)                       # online: one frame through the real Process entry
+regs = {UC_ARM64_REG_X0 + i: 0x1111 * (i + 1) for i in range(8)}
+for r, v in regs.items(): uc.reg_write(r, v)
+for i in range(8): uc.reg_write(UC_ARM64_REG_Q0 + i, 0x4000000000000000 + i)
+uc.reg_write(UC_ARM64_REG_Q10, 0x3ff8000000000000)
+sp0 = STACK + STACK_SZ - 0x100
+uc.reg_write(UC_ARM64_REG_SP, sp0); uc.reg_write(UC_ARM64_REG_LR, RET_MAGIC); uc.reg_write(UC_ARM64_REG_X18, 0)
+uc.emu_start(BASE + 0xaeb6a4, BASE + 0xaeb6a8, count=5_000_000)
+check(uc.reg_read(UC_ARM64_REG_PC) == BASE + 0xaeb6a8, 'the hook carries on into Process')
+check(all(uc.reg_read(r) == v for r, v in regs.items()) and uc.reg_read(UC_ARM64_REG_LR) == RET_MAGIC
+      and all(uc.reg_read(UC_ARM64_REG_Q0 + i) & 0xffffffffffffffff == 0x4000000000000000 + i for i in range(8)),
+      "Process's arguments and return address untouched")
+check(uc.reg_read(UC_ARM64_REG_SP) == sp0 - 0x80 and struct.unpack('<Q', uc.mem_read(sp0 - 0x80, 8))[0] == 0x3ff8000000000000,
+      "Process's first instruction (str d10, [sp, #-0x80]!) done by the hook")
+check(cheat_word() == 0, 'online: every cheat off')
+call_at(0x3055e50, 0, 0, 0x1ff)
+check(cheat_word() == 0, 'online: switching them on in the dialog changes nothing')
+calls.clear()
+HOOKS[BASE + 0x303c3d0] = lambda: calls.append(('coco_button', X(0), round(S(0), 1), X(3)))
+uc.reg_write(UC_ARM64_REG_Q0, struct.unpack('<I', struct.pack('<f', 42.0))[0])
+call('jeff_cheat_button_pause', 0xbeef, 0, 0, 3)
+check(not any(c[0] == 'coco_button' for c in calls), 'online: the pause menu has no Cheats button')
+glob.set('game_gm', 1.0)
+call('jeff_frame')
+check(cheat_word() == 0x1ff, 'back offline: the switches made online apply')
+calls.clear(); uc.reg_write(UC_ARM64_REG_Q0, struct.unpack('<I', struct.pack('<f', 42.0))[0])
+call('jeff_cheat_button_pause', 0xbeef, 0, 0, 3)
+check(('coco_button', 0xbeef, 42.0, 3) in calls, 'offline: the Cheats button is drawn, its arguments passed through')
+glob.set('game_gm', 2.0); call('jeff_frame'); glob.set('game_gm', 1.0)   # leave it as the game would find it
+call('jeff_frame')
+
 print('[4] create + alarm0')
 ctrl = new_inst(431); ctrl.set('plr_team', 1); ctrl.set('plr_dmg', 46); ctrl.set('plr_energy', 100); ctrl.set('plr_maxenergy', 100)
 for k in ('key_defend', 'keyp_special', 'is_hurt', 'is_fallen', 'is_dead', 'is_onair', 'is_charging'): ctrl.set(k, 0)
