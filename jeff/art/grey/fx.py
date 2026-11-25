@@ -2,7 +2,7 @@
 shock rings, error text, the HUD card and the select-screen preview."""
 import math, os, sys, random
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.dirname(HERE))
 import flame
@@ -256,6 +256,75 @@ def pillar(k, n=8):
     return f.finish(dark=0.4)
 
 
+def smoke(k, n=8):
+    """a pixel smoke puff: grey blobs that swell and thin out."""
+    W = 24
+    a = rgba(W, W)
+    rng = random.Random(14)
+    yy, xx = np.mgrid[0:W, 0:W]
+    grow = 0.45 + 0.55 * (k + 1) / n
+    for _ in range(5):
+        cx, cy, r = 12 + rng.uniform(-4, 4) * grow, 12 + rng.uniform(-4, 4) * grow, rng.uniform(4, 7) * grow
+        d = np.sqrt((xx + 0.5 - cx) ** 2 + (yy + 0.5 - cy) ** 2)
+        m = d < r
+        v = 1 - d / r
+        shade = np.where(v > 0.55, 150, np.where(v > 0.25, 115, 85))
+        keep = m & ((xx + yy + k) % 3 != 0 if k > n * 0.6 else m)
+        a[keep, 0] = shade[keep]; a[keep, 1] = shade[keep]; a[keep, 2] = (shade[keep] * 1.05).clip(0, 255)
+        a[keep, 3] = 255
+    return Image.fromarray(a, 'RGBA')
+
+
+def star(k, n=8):
+    """the impact star: four long white rays and four short, cyan / magenta fringes, a hot core."""
+    W = 48
+    a = rgba(W, W)
+    L = int(6 + 18 * (1 - (1 - (k + 1) / n) ** 2)) if k < n - 2 else int(24 * (n - k) / 2)
+    width = max(1, 3 - k // 3)
+    for ang in range(0, 360, 45):
+        ln = L if ang % 90 == 0 else int(L * 0.55)
+        for i in range(ln):
+            t = i / max(1, ln)
+            w = max(0, int(round(width * (1 - t))))
+            x = 24 + round(math.cos(math.radians(ang)) * i); y = 24 + round(math.sin(math.radians(ang)) * i)
+            for o in range(-w, w + 1):
+                px, py = (x + o, y) if ang % 180 else (x, y + o)
+                put(a, px, py, WHITE)
+            put(a, x - 1, y - 1, CYAN); put(a, x + 1, y + 1, MAGENTA)
+    if k < 3:
+        yy, xx = np.mgrid[0:W, 0:W]
+        m = (xx - 24) ** 2 + (yy - 24) ** 2 <= (5 - k) ** 2
+        a[m] = (255, 255, 255, 255)
+    return Image.fromarray(a, 'RGBA')
+
+
+def beam(k, n=6):
+    """a pillar of white-cyan light (origin bottom centre), widening then thinning."""
+    W, H = 24, 64
+    a = rgba(W, H)
+    w = [4, 9, 11, 9, 6, 3][k % 6]
+    for x in range(W):
+        d = abs(x + 0.5 - 12) / max(1, w)
+        if d > 1: continue
+        col = WHITE if d < 0.35 else (CYAN if d < 0.75 else (60, 120, 255))
+        a[:, x, :3] = col; a[:, x, 3] = int(255 * (1 - d * 0.5))
+    rng = random.Random(k)
+    for _ in range(6):
+        y = rng.randint(0, H - 1); a[y, :, :3] = (a[y, :, :3] * 0.6).astype(np.uint8)
+    return Image.fromarray(a, 'RGBA')
+
+
+def bits(k, n=2):
+    """data bits: a tiny pixel 0 and 1 (white, tinted in game)."""
+    a = rgba(5, 7)
+    glyph = ['01110', '10001', '10011', '10101', '11001', '10001', '01110'] if k == 0 else \
+            ['00100', '01100', '00100', '00100', '00100', '00100', '01110']
+    for y, row in enumerate(glyph):
+        for x, c in enumerate(row):
+            if c == '1': a[y, x] = (255, 255, 255, 255)
+    return Image.fromarray(a, 'RGBA')
+
+
 def sun_pal(fn):
     def f(k, n):
         flame.use_palette('sun')
@@ -264,11 +333,24 @@ def sun_pal(fn):
 
 
 def preview(k, n=4):
-    """select-screen preview (his breathing idle, 1x, feet at 48,74)."""
+    """select-screen preview: his breathing idle with a soft cyan glow, a glitch on one frame (feet at 48,74)."""
     u = (1 - math.cos(k / n * 2 * math.pi)) / 2
     p = skel.lerp_pose(poses.STAND, poses.STAND2, u)
     im, _ = skel.render(p, (96, 80), (48, 74), 1)
-    return im
+    a = np.asarray(im).copy(); m = a[..., 3] > 0
+    # a soft cyan glow round him (normal blending on the select screen: semi-transparent pixels)
+    glow = Image.fromarray((m * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.6))
+    ga = np.asarray(glow).astype(np.float32) / 255 * (0.42 + 0.12 * math.sin(k / n * 2 * math.pi))
+    base = np.zeros_like(a); base[..., :3] = CYAN; base[..., 3] = (ga * 255).astype(np.uint8)
+    out = Image.fromarray(base, 'RGBA')
+    if k == 2:                                       # a glitch on one frame: RGB split + a torn slice
+        for dx, col in ((-2, CYAN), (2, MAGENTA)):
+            gh = np.zeros_like(a); gh[m, :3] = col; gh[m, 3] = 170
+            out.alpha_composite(Image.fromarray(np.roll(gh, dx, axis=1), 'RGBA'))
+    out.alpha_composite(im)
+    if k == 2:
+        o = np.asarray(out).copy(); o[40:44] = np.roll(o[40:44], 3, axis=1); out = Image.fromarray(o, 'RGBA')
+    return out
 
 
 def marker(k, n=1):
@@ -278,8 +360,80 @@ def marker(k, n=1):
 GOLD_HI, GOLD, GOLD_LO, INK = (242, 223, 77, 255), (219, 161, 2, 255), (163, 81, 0, 255), (0, 0, 0, 255)
 
 
+def crisp(big, size):
+    """supersampled RGBA -> pixel art: box-filter colours, hard alpha"""
+    a = np.asarray(big.resize(size, Image.BOX)).copy()
+    m = a[..., 3] >= 110
+    a[..., 3] = np.where(m, 255, 0)
+    return Image.fromarray(a, 'RGBA')
+
+def portrait():
+    W, H = 42, 60
+    win = np.zeros((H, W, 4), np.float32)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    k = yy / H
+    win[..., 0] = 14 + 16 * k; win[..., 1] = 16 + 22 * k; win[..., 2] = 28 + 40 * k; win[..., 3] = 255
+    # back-glow behind his head
+    g = np.exp(-(((xx - 18) / 16) ** 2 + ((yy - 22) / 20) ** 2))
+    win[..., 0] += 30 * g; win[..., 1] += 150 * g; win[..., 2] += 190 * g
+    # faint grid
+    win[::6, :, :3] *= 1.18; win[:, ::6, :3] *= 1.12
+    win = np.clip(win, 0, 255).astype(np.uint8)
+    im = Image.fromarray(win, 'RGBA')
+    d = ImageDraw.Draw(im)
+    rng = random.Random(7)
+    for col in range(1, W, 5):                    # data rain: 0/1 bits in columns
+        y = rng.randint(-10, 40)
+        for i in range(rng.randint(2, 5)):
+            yy0 = y + i * 6
+            c = (40, 150 + 20 * (i == 0), 190, 255) if i else (150, 240, 255, 255)
+            if rng.random() < 0.5: d.point([(col, yy0), (col, yy0 + 1), (col, yy0 + 2)], fill=c)
+            else: d.rectangle((col - 1, yy0, col, yy0 + 2), outline=c)
+    # Grey in a rising slash with the glitch blade, his hologram clone back to back with him
+    main = skel.pose(poses.POSE_COOL, sp=-80, hd=-70, uf=48, lf=-8, ub=150, lb=-150, tf=58, sf=104, tb=124, sb=112)
+    Z, S = 1.0, 8
+    Wc, Hc = int(math.ceil(W / Z)), int(math.ceil(H / Z))
+    def figure(p, hxw, hyw, f=1.0):
+        J = skel.joints(p, 0, 0, f)
+        ox, oy = hxw / Z - J['head'][0], hyw / Z - J['head'][1]
+        big, Jw = skel.render(p, (Wc, Hc), (ox, oy), S, f=f)
+        return crisp(big, (round(Wc * Z), round(Hc * Z))).crop((0, 0, W, H)), {k: (v[0] * Z, v[1] * Z) for k, v in Jw.items()}
+    cl, _ = figure(main, 13, 9, -1.0)
+    ca = np.asarray(cl).copy(); cm = ca[..., 3] > 0
+    holo = np.zeros_like(ca); holo[cm, :3] = (90, 200, 240); holo[cm, 3] = 140
+    holo[1::3, :, 3] = (holo[1::3, :, 3] * 0.4).astype(np.uint8)         # hologram scanlines
+    im.alpha_composite(Image.fromarray(holo, 'RGBA'))
+    fig, Jm = figure(main, 19, 12)
+    hand = Jm['hf']
+    L = 44
+    sword = blade(1, 4, L=L, grip=4, w=2.6)
+    can = Image.new('RGBA', (2 * L, 2 * L), (0, 0, 0, 0)); can.alpha_composite(sword, (L - 4, L - 6))
+    can = can.rotate(58, resample=Image.NEAREST)            # rising up and forward
+    bl = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    bl.paste(can, (int(round(hand[0])) - L, int(round(hand[1])) - L), can)
+    im.alpha_composite(bl)
+    fa = np.asarray(fig).copy()
+    m = fa[..., 3] > 0
+    # rim lights: cyan on the right edge, magenta on the left (chromatic)
+    rim = Image.new('RGBA', fig.size, (0, 0, 0, 0)); ra = np.zeros_like(fa)
+    right = m & ~np.roll(m, -1, axis=1); left = m & ~np.roll(m, 1, axis=1)
+    out = fa.copy()
+    out[right, :3] = (110, 235, 255); out[left & ~right, :3] = (200, 90, 220)
+    for dx, col in ((-1, MAGENTA), (1, CYAN)):     # an RGB-split ghost
+        gh = np.zeros_like(fa); gh[m, :3] = col; gh[m, 3] = 150
+        im.alpha_composite(Image.fromarray(np.roll(gh, dx, axis=1), 'RGBA'))
+    im.alpha_composite(Image.fromarray(out, 'RGBA'))
+    a = np.asarray(im).copy()
+    for y0, h, dx in ((20, 2, 2), (37, 3, -2), (47, 1, 3)):   # torn rows
+        a[y0:y0 + h] = np.roll(a[y0:y0 + h], dx, axis=1)
+    a[::3, :, :3] = (a[::3, :, :3] * 0.82).astype(np.uint8)       # scanlines
+    for y, x0, w, c in ((12, 0, 7, CYAN), (29, 33, 9, MAGENTA), (52, 2, 10, CYAN), (44, 30, 6, WHITE)):
+        a[y, x0:x0 + w, :3] = c
+    return Image.fromarray(a, 'RGBA')
+
 def face():
-    """HUD / select portrait: the game's gold card, Grey on a glitching grey-blue screen."""
+    """HUD / select portrait: the game's gold card; Grey in a rising slash with the glitch blade, his
+    hologram clone back to back with him, on a glitching screen (back-glow, data rain, torn rows)."""
     W, H = 48, 77
     im = Image.new('RGBA', (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
     d.rounded_rectangle((0, 0, W - 1, H - 1), 4, fill=INK)
@@ -289,25 +443,7 @@ def face():
     d.rectangle((3, 64, W - 4, 73), fill=GOLD)
     d.line((4, 64, W - 5, 64), fill=GOLD_LO); d.line((4, 66, W - 5, 66), fill=GOLD_HI)
     d.line((3, 74, W - 4, 74), fill=GOLD_LO); d.line((2, 75, W - 3, 75), fill=GOLD_HI)
-    win = np.zeros((60, 42, 4), np.uint8)
-    for y in range(60):
-        k = y / 60
-        win[y, :, :3] = (int(30 + 40 * k), int(34 + 44 * k), int(46 + 60 * k))
-    win[..., 3] = 255
-    rng = random.Random(3)
-    for y in range(0, 60, 3): win[y, :, :3] = (win[y, :, :3] * 0.8).astype(np.uint8)
-    for _ in range(6):
-        y = rng.randint(0, 58); x0 = rng.randint(0, 30)
-        win[y, x0:x0 + rng.randint(4, 12), :3] = rng.choice((CYAN, MAGENTA))
-    wim = Image.fromarray(win, 'RGBA')
-    p = dict(poses.POSE_COOL)
-    big, _ = skel.render(p, (42, 60), (18, 58), 1)            # the whole stickman, as he stands
-    for dx, col in ((-1, CYAN), (1, MAGENTA)):
-        ch = np.array(big); m = ch[..., 3] > 0
-        ghost = np.zeros_like(ch); ghost[m, :3] = col; ghost[m, 3] = 120
-        wim.alpha_composite(Image.fromarray(np.roll(ghost, dx, axis=1), 'RGBA'))
-    wim.alpha_composite(big)
-    im.paste(wim, (3, 3))
+    im.paste(portrait(), (3, 3))
     return im
 
 
@@ -320,6 +456,7 @@ SPRITES = {   # name: (generator, frames, ox, oy)
     'sword': (blade, 4, 4, 6), 'spear': (spear, 4, 30, 6), 'bolt': (bolt, 6, 16, 48),
     'error': (error_txt, 4, 48, 12), 'fatal': (fatal_txt, 4, 80, 16), 'hex': (hexwall, 4, 20, 58),
     'spawn': (spawn, 8, 16, 80), 'preview': (preview, 4, 48, 74),
+    'smoke': (smoke, 8, 12, 12), 'star': (star, 8, 24, 24), 'beam': (beam, 6, 12, 64), 'bits': (bits, 2, 2, 3),
 }
 MARKERS = [('stand', 4), ('walk', 6), ('run', 6), ('jump', 2), ('fall', 2), ('crouch', 1), ('defend', 1),
            ('charge', 2), ('hurt', 2), ('hurtup', 1), ('hurtdown', 1), ('fallen', 1), ('attack', 1)]

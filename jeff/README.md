@@ -78,6 +78,10 @@ technique, chained on top of the mod:
   spawn `o_mask_hit` hitboxes, so blocking, knockback and KO work like for everyone else.
 * `build/elfpatch.py` — adds two PT_LOAD segments (code @ `0x3600000`, data/bss @ `0x3700000`),
   relocates the program header table and patches 4 branches (each verified first).
+* `build/dexpatch.py` — the user's save-recovery fix in the Coco mod's Java code (`classes5.dex`,
+  `com.coco.transfer.SaveStore.recover`). It removes the half-written tree instead of throwing
+  "The save recovery copy is missing.". It is 15 bytes patched in place, with the DEX checksum and
+  signature recomputed.
 * `build/droidpatch.py` — adds object `o_jeff` (#685, parent `o_parent_character`) to `game.droid`.
   It also carries the user's shader fix: the game's screen-distortion shader divided by
   `dot(B,B)`, which is 0 at the centre of the effect, and now clamps it to at least 0.01 (same
@@ -187,7 +191,7 @@ teleports, clones and now and then while idle.
 | Run + attack | Glitch Dash: through the opponent, three echoes slash behind him |
 | Skill | **Clone Legion**: four clones burst out: ice spikes, two fireballs, a spear from the sky, a lightning dash kick |
 | Down + skill | **Element Overload**: ice prison, fire pillar, glitch spear rain |
-| Shield + skill (full bar) | **SYSTEM CRASH**: the screen glitches (scanlines, torn colour bands), the opponent is held while eight clones dash through him from both sides and the air, each bringing an element. Then Grey blinks above him and brings down a giant glitch blade: one huge unblockable hit, "FATAL ERROR". Not an instant K.O. |
+| Shield + skill (full bar) | **SYSTEM CRASH**: the screen glitches (scanlines, torn colour bands, dead pixels raining down, all of it getting worse), the opponent is held while twelve clones dash through him from both sides and the air, each strike joined to him by lightning and bringing an element (fire, ice spikes, a sky bolt, a glitch burst). Then Grey blinks above him while energy pours up into a giant glitch blade and brings it down: one huge unblockable hit, a pillar of light, three shock rings, lightning all round, a ring of ice spikes, a scorched and frozen crater, a flash, then a blue screen of death (crash text typing out under a cursor) that shatters into slices, and "FATAL ERROR". Not an instant K.O. |
 
 The framework's `sprite_index` values for Grey are tiny invisible marker strips, one per state
 (stand, walk, run, jump, fall, crouch, defend, charge, hurt, knocked down), so the game's own logic
@@ -196,6 +200,38 @@ sees normal sprites. Grey reads them to pick his pose. Effects are pixel art fro
 (glitch, clone, ice, crash) follow the same rules as the other fighters' streams, with at most 2
 alive. Offline only, like Jeff and Scyther. Stats: HP 2200, damage 47, walk 3.6, run 8.4, skill
 costs 55 / 50.
+
+**Effects layer** (all in `src/grey.c`, drawn every frame in this order):
+* ground marks: scorch under fire explosions, frost under ice, both fade out over a few seconds;
+* afterimages, then **ribbon trails**: triangle strips following his hands, feet and the blade
+  tip over the last 9 frames, white at the head, cyan then magenta at the tail, only on the
+  points that are actually moving fast (so idle stays clean, and a teleport never smears across
+  the screen);
+* clones as **holograms**: a cyan glow, a slight flicker, scanlines running down them, and they
+  scatter into pixels and bits when they fade;
+* a **neon glow** round Grey himself (brighter while charging and attacking, strongest in the
+  special), then the stickman, then glitch tear bars across him while he glitches;
+* projectiles with a glow, embers and smoke behind fireballs, frost behind ice, pixels behind
+  spears;
+* **lightning**: jagged two-pass strips (coloured glow, white core) re-rolled every other frame;
+* a 200-slot **particle system**: sparks, embers, frost, falling pixels, smoke, speed lines,
+  0/1 bits, ice chips, flashes;
+* every blow that lands: an impact star, a flash, sparks, speed lines bursting out and the
+  element's own debris. Grey's own blows **hit-stop** him for a few frames (6 on a knockdown,
+  3 on a heavy hit) and knockdowns tear the screen for a moment. All of this only when the
+  hitbox actually overlaps an opponent: a whiff stays clean and never freezes;
+* he **materialises** out of rushing pixels when the match starts, **glitches** and sheds pixels
+  when he is hit, crashes in a burst of pixels, bits and dust when knocked down, and on a **K.O.**
+  he is deleted pixel by pixel down to a faint ghost (back to normal if the round restarts);
+* landing dust and a ring, take-off puffs, speed lines while running, data pouring off him while
+  he charges, a stray bit now and then at idle.
+
+Each frame's primitive vertices are budgeted (1400) and every strip is checked for finite
+coordinates before it is drawn.
+
+The HUD / select portrait shows him in a rising slash with the glitch blade, his hologram clone
+back to back with him, on a glitching screen (cyan back-glow, data rain, rim light, torn rows).
+The select-screen preview has a soft cyan glow and a glitch flicker.
 
 ## Crash in Event Horizon Cleave
 

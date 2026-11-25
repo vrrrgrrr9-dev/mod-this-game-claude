@@ -64,6 +64,7 @@
 #define C_CLONE  RGB(90, 200, 240)
 #define C_CLONEB RGB(60, 140, 190)
 #define C_CLONEL RGB(10, 40, 70)
+#define BSOD_BLUE RGB(16, 44, 178)
 
 #define PI_F 3.14159265f
 #define DEG (PI_F / 180.0f)
@@ -75,6 +76,8 @@
 #define MOVE_NONE (-1)
 #define BLEND_N 6
 #define SPC_DUR 176            /* SYSTEM CRASH length */
+#define ENTRY_T 40             /* frames he takes to materialise when the match starts */
+#define DEAD_FADE 90           /* frames a KO takes to dissolve him (down to a faint ghost) */
 
 typedef struct { float hx, hy, rot, mx; float a[GA_N]; int flags; } GPose;
 typedef struct { float x, y; } V2;
@@ -83,6 +86,16 @@ typedef struct { int on, kind, t; float x, y, vx, vy, dmg, f, floor_y; } Proj;
 typedef struct { int on, t, hit; float x, y, size, vf, dmg, f; } Spike;
 typedef struct { int on, t, a, tpf, n, add, col; float x, y, xs, ys, rot; } Fx;
 typedef struct { int on, t, col; GPose p; float x, y, f; } Ghost;
+#define N_PART 200
+#define N_TRS 9                /* ribbon trail samples */
+#define N_TRP 5                /* tracked points: front hand, back hand, front foot, back foot, blade tip */
+#define N_BOLT 10
+#define N_MARK 10
+enum { PK_SPARK, PK_EMBER, PK_FROST, PK_PIXEL, PK_SMOKE, PK_STREAK, PK_BIT, PK_SHARD, PK_FLASH };
+typedef struct { int on, kind, t, life, col, frame; float x, y, vx, vy, g, drag, size, dsize, rot, vr, a0; } Part;
+typedef struct { float x[N_TRP], y[N_TRP]; int on[N_TRP]; } TrailS;
+typedef struct { int on, t, life, seed, col; float x0, y0, x1, y1, w; } Bolt;
+typedef struct { int on, t, life, kind; float x, y, w; } Mark;
 
 typedef struct {
     CInstance *inst;
@@ -94,11 +107,23 @@ typedef struct {
     int glitch_t, aura_t, fail_t, home_t; float home_v;
     Clone cl[N_CLONE]; Proj pr[N_PROJ]; Spike sp[N_SPIKE]; Fx fx[N_FX]; Ghost gh[N_GHOST];
     int gh_head;
+    /* the overhaul: particles, ribbon trails, lightning, ground marks, hit-stop, screen tears */
+    Part pt[N_PART]; int pt_head;
+    TrailS tr[N_TRS]; int tr_head, tr_n;
+    Bolt bo[N_BOLT]; Mark mk[N_MARK];
+    int hitstop, scr_t, was_air;
+    int entry_t, prev_loco, dead_t;             /* materialising at the start, getting hit, KO'd */
     /* SYSTEM CRASH */
     int sp_on, sp_t, tgt_id, depth_saved, hit_done; float tgt_x, tgt_y; double old_depth;
 } Grey;
 
 static Grey g_grey[4];
+static void impact(Grey *j, float x, float y, int col, float power);
+static Part *part(Grey *j, int kind, float x, float y, float vx, float vy, int life, float size, int col);
+static void burst(Grey *j, int kind, float x, float y, int n, float spd, int life, float size, int col);
+static void bolt(Grey *j, float x0, float y0, float x1, float y1, int life, float w, int col);
+static void mark(Grey *j, int kind, float x, float y, float w, int life);
+static int glitch_col(void);
 int g_grey_spr[GR_COUNT];
 int g_grey_snd[GS_COUNT];
 int g_grey_loaded;
@@ -262,13 +287,13 @@ static CInstance *inst_nth(CInstance *s, int obj, int i, int *out_id) {
     *out_id = iid;
     return YYGML_FindInstance(iid);
 }
-static CInstance *nearest_enemy(CInstance *s, int *out_id, float maxdx, float maxdy) {
+/* the nearest living opponent within maxdx / maxdy of the point (mx, my) */
+static CInstance *nearest_enemy_at(CInstance *s, double mx, double my, int *out_id, float maxdx, float maxdy) {
     *out_id = -1;
     if (!parent_ok(s)) return 0;
     RValue me = rv_undef();
     YYGML_Variable_GetValue(parent_of(s), g_VAR_plr_team.id, ARRAY_INDEX_NONE, &me, false, false);
     double my_team = rv_num(&me); rv_free(&me);
-    double mx = sget(s, &g_VAR_x), my = sget(s, &g_VAR_y);
     int cnt = inst_count(s, OBJ_PARENT_CHARACTER);
     CInstance *best = 0; double bestd = 1e9; int best_id = -1;
     for (int i = 0; i < cnt; i++) {
@@ -289,6 +314,14 @@ static CInstance *nearest_enemy(CInstance *s, int *out_id, float maxdx, float ma
     }
     *out_id = best_id;
     return best;
+}
+static CInstance *nearest_enemy(CInstance *s, int *out_id, float maxdx, float maxdy) {
+    return nearest_enemy_at(s, sget(s, &g_VAR_x), sget(s, &g_VAR_y), out_id, maxdx, maxdy);
+}
+/* does an opponent's body (about 24 x 62 above his feet) overlap a hitbox centred on x, y? */
+static bool enemy_in_box(CInstance *s, float x, float y, float hw, float hh) {
+    int id = -1;
+    return nearest_enemy_at(s, x, y + 31, &id, hw + 12, hh + 31) != 0;
 }
 static bool free_at(CInstance *s, float x, float y) {
     RValue r = rv_undef();
@@ -491,7 +524,8 @@ static void draw_weapon(CInstance *s, const GPose *p, const V2 *J, float f, floa
     float k = wk == 3 ? 3.2f : 1.0f;
     spr(s, a, (float)((g_grey_tick / 3) % 4), J[7].x, J[7].y, k, k, ang, col, al);
 }
-/* full = outline + fill, back limbs a shade darker; !full = one flat silhouette (ghosts, chroma) */
+static float g_extra_w;            /* extra line width for the flat silhouette (the neon glow) */
+/* full = outline + fill, back limbs a shade darker; !full = one flat silhouette (ghosts, chroma, glow) */
 static void draw_stick(CInstance *s, const GPose *p, float x, float y, float f, int fill, int back, int line,
                        float al, int full) {
     V2 J[12];
@@ -516,10 +550,11 @@ static void draw_stick(CInstance *s, const GPose *p, float x, float y, float f, 
         if (over) layer(s, J, BACK_ARM, 2, 0, fill, al);
         spr(s, GR_SHAPE, 1, J[3].x, J[3].y, G_HEAD_R / 16.0f, G_HEAD_R / 16.0f, 0, fill, al);
     } else {
-        layer(s, J, BACK_LEG, 2, 0, fill, al); layer(s, J, BACK_ARM, 2, 0, fill, al);
-        layer(s, J, FRONT_LEG, 2, 0, fill, al); bone(s, J[0], J[1], G_W_TORSO, fill, al, 1);
-        layer(s, J, FRONT_ARM, 2, 0, fill, al);
-        spr(s, GR_SHAPE, 1, J[3].x, J[3].y, G_HEAD_R / 16.0f, G_HEAD_R / 16.0f, 0, fill, al);
+        float e = g_extra_w;
+        layer(s, J, BACK_LEG, 2, e, fill, al); layer(s, J, BACK_ARM, 2, e, fill, al);
+        layer(s, J, FRONT_LEG, 2, e, fill, al); bone(s, J[0], J[1], G_W_TORSO + e, fill, al, 1);
+        layer(s, J, FRONT_ARM, 2, e, fill, al);
+        spr(s, GR_SHAPE, 1, J[3].x, J[3].y, (G_HEAD_R + e * 0.5f) / 16.0f, (G_HEAD_R + e * 0.5f) / 16.0f, 0, fill, al);
         draw_weapon(s, p, J, f, al * 0.8f, fill);
     }
 }
@@ -566,12 +601,18 @@ static void fx_kind(Grey *j, int kind, float x, float y, float sc, float f) {
     case GF_SPAWN: fx_at(j, GR_SPAWN, x, y, sc * 0.7f, sc * 0.75f, 0, 1, 1, RGB(110, 200, 240)); break;
     }
 }
-static void hit_at(CInstance *s, Grey *j, float x, float y, int mask, float xs, float ys, double dmg, double hf,
+/* a hitbox; the impact (star, sparks, debris, a screen tear on knockdowns) only if it lands on someone */
+static bool hit_at(CInstance *s, Grey *j, float x, float y, int mask, float xs, float ys, double dmg, double hf,
                    double vf, int stun, int knock, int spr_hit, int col, int snd) {
     Hit h = { my_dmg(s) * dmg, hf, vf, stun, 6, xs, ys, mask, 1, knock, 1, knock,
               spr_hit == 3 ? SPR_HIT_3 : spr_hit == 5 ? SPR_HIT_5 : SPR_HIT_1, color_of(col), snd < 1 ? 1 : snd };
     spawn_hit(s, x, y, &h);
-    fx_kind(j, GF_SPARK, x, y, 0.8f, 1);
+    float half = mask == SPR_MASK64 ? 32.0f : mask == SPR_MASK32 ? 16.0f : mask == SPR_MASK24 ? 12.0f : 8.0f;
+    if (!enemy_in_box(s, x, y, half * fabsf_(xs), half * fabsf_(ys))) return false;
+    float power = knock ? 1.0f : (dmg >= 0.9 ? 0.7f : 0.4f);
+    impact(j, x, y, col, power);
+    if (knock && j->scr_t < 5) j->scr_t = 5;
+    return true;
 }
 static void spawn_clone(Grey *j, int tl, float x, float y, float f, int tint) {
     int best = 0;
@@ -580,6 +621,11 @@ static void spawn_clone(Grey *j, int tl, float x, float y, float f, int tint) {
     c->on = 1; c->tl = tl; c->t = 0; c->ev = 0; c->tint = tint; c->fade = 0; c->x = x; c->y = y; c->f = f;
     fx_kind(j, GF_SPAWN, x, y, 1, f);
     fx_kind(j, GF_GLITCH, x, y - 30, 0.8f, f);
+    for (int k = 0; k < 16; k++) {                                   /* pixels rushing in to build him */
+        float ox = frand(-26, 26), oy = frand(-62, 6);
+        Part *q = part(j, PK_PIXEL, x + ox, y - 28 + oy, -ox / 7.0f, -oy / 7.0f, 8, frand(1.5f, 3), glitch_col());
+        if (q) { q->g = 0; q->drag = 1; }
+    }
 }
 static void spawn_proj(Grey *j, int kind, float x, float y, float vx, float vy, float dmg, float f, float floor_y) {
     int best = 0;
@@ -611,8 +657,16 @@ static void run_events(CInstance *s, Grey *j, int tl, int t, int *ev, float bx, 
         switch (e->type) {
         case GE_HIT: {
             int mask = q[2] >= 64 ? SPR_MASK64 : q[2] >= 32 ? SPR_MASK32 : q[2] >= 24 ? SPR_MASK24 : SPR_MASK16;
-            hit_at(s, j, x + f * q[0] / 4.0f, y + q[1] / 4.0f, mask, q[3] / 100.0f, q[4] / 100.0f, q[5] / 100.0,
-                   f * q[6] / 10.0, q[7] / 10.0, q[8], e->flags & 1, (e->flags >> 2) & 7, q[9], (e->flags >> 5) & 3);
+            bool landed = hit_at(s, j, x + f * q[0] / 4.0f, y + q[1] / 4.0f, mask, q[3] / 100.0f, q[4] / 100.0f, q[5] / 100.0,
+                                 f * q[6] / 10.0, q[7] / 10.0, q[8], e->flags & 1, (e->flags >> 2) & 7, q[9], (e->flags >> 5) & 3);
+            if (landed && tl < GT_FIRST_CLONE && j->move == tl) {  /* hit-stop on his own blows that land */
+                int hs = (e->flags & 1) ? 6 : (q[5] >= 90 ? 3 : 0);
+                if (hs > j->hitstop) {
+                    double a2 = sget_i(s, &g_VAR_alarm, 2);
+                    if (a2 > 0) bset_i(s, &g_VAR_alarm, 2, a2 + (hs - j->hitstop));   /* the combo window waits too */
+                    j->hitstop = hs;
+                }
+            }
             break;
         }
         case GE_CLONE:
@@ -660,7 +714,12 @@ static void clones_step(CInstance *s, Grey *j) {
         c->t++;
         GPose p; tl_sample(c->tl, (float)c->t, &p);
         run_events(s, j, c->tl, c->t, &c->ev, c->x + c->f * p.mx, c->y, c->f);
-        if (c->t >= k_gtl[c->tl].dur) { c->fade = 1; fx_kind(j, GF_GLITCH, c->x + c->f * p.mx, c->y - 30, 0.7f, c->f); }
+        if (c->t >= k_gtl[c->tl].dur) {                              /* falls apart into pixels */
+            float cx = c->x + c->f * p.mx;
+            c->fade = 1; fx_kind(j, GF_GLITCH, cx, c->y - 30, 0.7f, c->f);
+            for (int k = 0; k < 14; k++) part(j, PK_PIXEL, cx + frand(-10, 10), c->y - frand(4, 58), frand(-1.5f, 1.5f), frand(-3.5f, -1), 26, frand(1.5f, 3), glitch_col());
+            for (int k = 0; k < 4; k++) part(j, PK_BIT, cx + frand(-8, 8), c->y - frand(10, 50), frand(-0.6f, 0.6f), frand(-1.4f, -0.5f), 34, 1, C_CYAN);
+        }
     }
 }
 static void proj_step(CInstance *s, Grey *j) {
@@ -670,6 +729,15 @@ static void proj_step(CInstance *s, Grey *j) {
         p->t++;
         if (p->kind == GP_FIRE) p->vy += 0.05f;
         p->x += p->vx; p->y += p->vy;
+        if (p->kind == GP_FIRE) {                                    /* embers and smoke behind it */
+            part(j, PK_EMBER, p->x - p->vx, p->y + frand(-3, 3), -p->vx * 0.2f + frand(-0.5f, 0.5f), frand(-0.8f, 0.2f), 22, frand(1.5f, 3), (rnd() & 1) ? C_FIRE : RGB(255, 210, 90));
+            if (p->t % 4 == 0) part(j, PK_SMOKE, p->x - p->vx * 2, p->y, 0, -0.3f, 24, 5, RGB(70, 66, 70));
+        } else if (p->kind == GP_SHARD) {
+            if (p->t % 2 == 0) part(j, PK_FROST, p->x, p->y, 0, 0, 14, 1.6f, C_ICE);
+        } else {
+            part(j, PK_PIXEL, p->x - p->vx * 0.5f + frand(-3, 3), p->y - p->vy * 0.5f + frand(-3, 3), 0, 0, 14, 2, glitch_col());
+            if (p->t % 2 == 0) part(j, PK_STREAK, p->x, p->y, -p->vx * 0.6f, -p->vy * 0.6f, 6, 1.3f, C_CYAN);
+        }
         int tid = -1, boom = 0;
         CInstance *en = p->t > 2 ? nearest_enemy(s, &tid, 400, 200) : 0;   /* armed after 3 frames: seen leaving */
         if (en) {
@@ -684,6 +752,8 @@ static void proj_step(CInstance *s, Grey *j) {
         if (p->kind == GP_FIRE) {
             hit_at(s, j, p->x, p->y, SPR_MASK32, 1.3f, 1.3f, p->dmg, p->vx > 0 ? 3.0 : -3.0, -4.0, 16, 0, 3, GC_FIRE, 1);
             fx_kind(j, GF_FIREBURST, p->x, p->y, 0.6f, p->f);
+            for (int k = 0; k < 3; k++) part(j, PK_SMOKE, p->x + frand(-6, 6), p->y + frand(-6, 2), frand(-0.6f, 0.6f), -0.8f, 40, 8, RGB(80, 76, 80));
+            if (p->y > p->floor_y - 24) mark(j, 0, p->x, p->floor_y, 26, 150);
         } else if (p->kind == GP_SHARD) {
             hit_at(s, j, p->x, p->y, SPR_MASK16, 1.2f, 1.2f, p->dmg, p->vx > 0 ? 1.5 : -1.5, -1.5, 10, 0, 1, GC_ICE, 1);
             fx_kind(j, GF_SHATTER, p->x, p->y, 0.4f, p->f);
@@ -700,6 +770,13 @@ static void spikes_step(CInstance *s, Grey *j) {
         Spike *k = &j->sp[i];
         if (!k->on) continue;
         if (++k->t >= 30) { k->on = 0; continue; }
+        if (k->t == 1) {
+            burst(j, PK_FROST, k->x, k->y - 6, 12, 2.4f * k->size, 40, 2.6f, C_ICE);
+            fx_at(j, GR_RING, k->x, k->y - 1, 0.45f * k->size, 0.45f * k->size, 0, 2, 1, C_ICE);
+            mark(j, 1, k->x, k->y, 30 * k->size, 160);
+        }
+        if (k->t % 5 == 0) part(j, PK_FROST, k->x + frand(-5, 5), k->y - frand(4, 36 * k->size), frand(-0.3f, 0.3f), -0.4f, 30, 2.2f, C_ICE);
+        if (k->t == 21) burst(j, PK_SHARD, k->x, k->y - 20 * k->size, 7, 3.2f, 30, 2.4f, RGB(200, 240, 255));
         if (k->t == 3 && !k->hit) {
             k->hit = 1;
             hit_at(s, j, k->x, k->y - 20 * k->size, SPR_MASK32, 0.7f * k->size, 1.3f * k->size, k->dmg, 1.0 * k->f, k->vf,
@@ -715,6 +792,236 @@ static void ghost_push(Grey *j, const GPose *p, float x, float y, float f, int c
     Ghost *g = &j->gh[j->gh_head];
     j->gh_head = (j->gh_head + 1) % N_GHOST;
     g->on = 1; g->t = 0; g->p = *p; g->x = x; g->y = y; g->f = f; g->col = col;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* the overhaul: particles, ribbon trails, lightning, ground marks, impacts                     */
+/* ------------------------------------------------------------------------------------------ */
+#define PR_TRIANGLESTRIP 5
+static int g_vtx_budget;
+static void prim_begin(CInstance *s) {
+    RValue r = rv_undef(); RValue v = rv_real(PR_TRIANGLESTRIP);
+    F_DrawPrimitiveBegin(&r, s, s, 1, &v);
+    rv_free(&r);
+}
+static void prim_end(CInstance *s) {
+    RValue r = rv_undef(); RValue v = rv_undef();
+    F_DrawPrimitiveEnd(&r, s, s, 0, &v);
+    rv_free(&r);
+}
+static void vtx(CInstance *s, float x, float y, int col, float a) {
+    RValue r = rv_undef();
+    RValue v[4] = { rv_real(x), rv_real(y), rv_real(col), rv_real(a < 0 ? 0 : (a > 1 ? 1 : a)) };
+    F_DrawVertexColor(&r, s, s, 4, v);
+    rv_free(&r);
+}
+#define STRIP_MAX 48
+typedef struct { int n; float x[STRIP_MAX], y[STRIP_MAX], a[STRIP_MAX]; int col[STRIP_MAX]; } Strip;
+static void strip_add(Strip *st, float x, float y, int col, float a) {
+    if (st->n >= STRIP_MAX) return;
+    st->x[st->n] = x; st->y[st->n] = y; st->col[st->n] = col; st->a[st->n] = a; st->n++;
+}
+static void strip_flush(CInstance *s, Strip *st) {         /* only real strips, all finite, within budget */
+    int n = st->n;
+    st->n = 0;
+    if (n < 4 || n > g_vtx_budget) return;
+    for (int i = 0; i < n; i++) if (!finite_(st->x[i]) || !finite_(st->y[i])) return;
+    g_vtx_budget -= n;
+    prim_begin(s);
+    for (int i = 0; i < n; i++) vtx(s, st->x[i], st->y[i], st->col[i], st->a[i]);
+    prim_end(s);
+}
+
+/* particles */
+static Part *part(Grey *j, int kind, float x, float y, float vx, float vy, int life, float size, int col) {
+    if (!finite_(x) || !finite_(y)) return 0;
+    Part *p = &j->pt[j->pt_head];
+    j->pt_head = (j->pt_head + 1) % N_PART;
+    p->on = 1; p->kind = kind; p->t = 0; p->life = life < 2 ? 2 : life; p->col = col; p->frame = (int)(rnd() % 8);
+    p->x = x; p->y = y; p->vx = vx; p->vy = vy; p->size = size; p->dsize = 0; p->rot = frand(0, 360); p->vr = 0; p->a0 = 1;
+    switch (kind) {
+    case PK_SPARK: p->g = 0.18f; p->drag = 0.9f; break;
+    case PK_EMBER: p->g = -0.05f; p->drag = 0.95f; break;
+    case PK_FROST: p->g = -0.015f; p->drag = 0.94f; p->dsize = 0.05f; break;
+    case PK_PIXEL: p->g = 0.12f; p->drag = 0.96f; p->vr = frand(-12, 12); break;
+    case PK_SMOKE: p->g = -0.04f; p->drag = 0.94f; p->dsize = 0.03f; p->a0 = 0.55f; break;
+    case PK_STREAK: p->g = 0; p->drag = 0.88f; break;
+    case PK_BIT: p->g = -0.03f; p->drag = 0.97f; p->frame = (int)(rnd() % 2); break;
+    case PK_SHARD: p->g = 0.25f; p->drag = 0.97f; p->vr = frand(-20, 20); break;
+    case PK_FLASH: p->g = 0; p->drag = 1; p->dsize = size * 0.4f; p->a0 = 0.75f; break;
+    }
+    return p;
+}
+static void burst(Grey *j, int kind, float x, float y, int n, float spd, int life, float size, int col) {
+    for (int i = 0; i < n; i++) {
+        float a = frand(0, 6.2831f), v = spd * frand(0.35f, 1.0f);
+        part(j, kind, x, y, cosf_(a) * v, sinf_(a) * v, life + (int)frand(-life * 0.3f, life * 0.3f), size * frand(0.7f, 1.3f), col);
+    }
+}
+static void parts_step(Grey *j) {
+    for (int i = 0; i < N_PART; i++) {
+        Part *p = &j->pt[i];
+        if (!p->on) continue;
+        if (++p->t >= p->life) { p->on = 0; continue; }
+        p->vy += p->g; p->vx *= p->drag; p->vy *= p->drag;
+        p->x += p->vx; p->y += p->vy; p->rot += p->vr; p->size += p->dsize;
+        if (p->kind == PK_SHARD && p->vy > 0 && p->t > 6 && p->vy > 3) p->vy *= -0.3f;
+    }
+}
+static int glitch_col(void) { unsigned r = rnd() % 4; return r == 0 ? C_WHITE : r == 1 ? C_MAG : C_CYAN; }
+static void parts_draw(CInstance *s, Grey *j, int additive) {
+    for (int i = 0; i < N_PART; i++) {
+        Part *p = &j->pt[i];
+        if (!p->on) continue;
+        int add = p->kind != PK_PIXEL && p->kind != PK_SMOKE && p->kind != PK_SHARD;
+        if (add != additive) continue;
+        float u = (float)p->t / p->life, a = p->a0 * (1 - u * u);
+        switch (p->kind) {
+        case PK_SPARK: case PK_STREAK: {
+            float sp = sqrtf_(p->vx * p->vx + p->vy * p->vy);
+            float len = p->kind == PK_STREAK ? p->size * 6 : 1.5f + sp * 1.6f;
+            spr(s, GR_SHAPE, 0, p->x, p->y, len / 32.0f, p->size / 32.0f, -atan2f_(p->vy, p->vx) * 57.29578f, p->col, a);
+            break;
+        }
+        case PK_EMBER: case PK_FROST: case PK_FLASH:
+            spr(s, GR_SHAPE, 1, p->x, p->y, p->size / 32.0f, p->size / 32.0f, 0, p->col,
+                p->kind == PK_EMBER ? a * (0.6f + 0.4f * (float)((p->t + p->frame) % 3 != 0)) : a);
+            break;
+        case PK_PIXEL: case PK_SHARD:
+            spr(s, GR_SHAPE, 0, p->x, p->y, p->size / 32.0f, p->size / 32.0f, p->rot, p->col, a);
+            break;
+        case PK_SMOKE:
+            spr(s, GR_SMOKE, (float)(u * 7.99f), p->x, p->y, p->size / 12.0f, p->size / 12.0f, 0, p->col, a);
+            break;
+        case PK_BIT:
+            spr(s, GR_BITS, (float)p->frame, p->x, p->y, 1, 1, 0, p->col, a * (p->t % 6 < 4 ? 1.0f : 0.3f));
+            break;
+        }
+    }
+}
+
+/* ribbon trails: where his hands, feet and blade tip have been over the last frames */
+static void trails_push(Grey *j, const GPose *p, float x, float y, float f) {
+    V2 J[12]; fk(p, x, y, f, J);
+    TrailS *t = &j->tr[j->tr_head];
+    j->tr_head = (j->tr_head + 1) % N_TRS;
+    if (j->tr_n < N_TRS) j->tr_n++;
+    const int idx[4] = { 7, 5, 11, 9 };
+    for (int k = 0; k < 4; k++) { t->x[k] = J[idx[k]].x; t->y[k] = J[idx[k]].y; t->on[k] = 1; }
+    int wk = (p->flags >> 2) & 3;
+    t->on[4] = wk != 0;
+    if (wk) {
+        V2 d = dir_of(p->a[GA_W], p->rot, f);
+        float len = wk == 2 ? 50 : wk == 3 ? 141 : 44;          /* the sprites' tips: spear 50, sword 44 (x3.2 giant) */
+        t->x[4] = J[7].x + d.x * len; t->y[4] = J[7].y + d.y * len;
+    }
+}
+static void trails_clear(Grey *j) { j->tr_n = 0; }
+static void trails_draw(CInstance *s, Grey *j, float strength) {
+    if (j->tr_n < 3 || strength <= 0.02f) return;
+    for (int k = 0; k < N_TRP; k++) {
+        /* only for the points that are moving fast */
+        float fastest = 0;
+        for (int i = 0; i + 1 < j->tr_n && i < 4; i++) {
+            const TrailS *a = &j->tr[(j->tr_head - 1 - i + 2 * N_TRS) % N_TRS], *b = &j->tr[(j->tr_head - 2 - i + 2 * N_TRS) % N_TRS];
+            if (!a->on[k] || !b->on[k]) continue;
+            float dx = a->x[k] - b->x[k], dy = a->y[k] - b->y[k], d = sqrtf_(dx * dx + dy * dy);
+            if (d > fastest) fastest = d;
+        }
+        if (fastest < (k == 4 ? 4.0f : 3.2f)) continue;
+        float w0 = k == 4 ? 5.0f : 3.2f;
+        Strip st; st.n = 0;
+        for (int i = 0; i < j->tr_n - 1; i++) {
+            const TrailS *a = &j->tr[(j->tr_head - 1 - i + 2 * N_TRS) % N_TRS], *b = &j->tr[(j->tr_head - 2 - i + 2 * N_TRS) % N_TRS];
+            if (!a->on[k] || !b->on[k]) break;
+            float dx = a->x[k] - b->x[k], dy = a->y[k] - b->y[k], d = sqrtf_(dx * dx + dy * dy);
+            if (d > 90) break;                                       /* a teleport: don't smear across */
+            if (d < 0.01f) d = 0.01f;
+            float nx = -dy / d, ny = dx / d, u = (float)i / (j->tr_n - 1), w = w0 * (1 - u);
+            int col = u < 0.3f ? C_WHITE : (u < 0.65f ? C_CYAN : C_MAG);
+            float al = strength * (1 - u) * (k == 4 ? 0.9f : 0.65f);
+            strip_add(&st, a->x[k] + nx * w, a->y[k] + ny * w, col, al);
+            strip_add(&st, a->x[k] - nx * w, a->y[k] - ny * w, col, al * 0.6f);
+        }
+        strip_flush(s, &st);
+    }
+}
+
+/* lightning: a jagged ribbon between two points, re-rolled every other frame */
+static void bolt(Grey *j, float x0, float y0, float x1, float y1, int life, float w, int col) {
+    int best = 0;
+    for (int i = 0; i < N_BOLT; i++) { if (!j->bo[i].on) { best = i; break; } if (j->bo[i].t > j->bo[best].t) best = i; }
+    Bolt *b = &j->bo[best];
+    b->on = 1; b->t = 0; b->life = life; b->seed = (int)(rnd() & 0xffff); b->col = col;
+    b->x0 = x0; b->y0 = y0; b->x1 = x1; b->y1 = y1; b->w = w;
+}
+static void bolts_draw(CInstance *s, Grey *j) {
+    for (int i = 0; i < N_BOLT; i++) {
+        Bolt *b = &j->bo[i];
+        if (!b->on) continue;
+        unsigned save = g_rng;
+        g_rng = (unsigned)(b->seed * 2654435761u) + (unsigned)(b->t / 2) * 40503u + 1u;
+        float dx = b->x1 - b->x0, dy = b->y1 - b->y0, len = sqrtf_(dx * dx + dy * dy);
+        if (len < 1) { g_rng = save; continue; }
+        float nx = -dy / len, ny = dx / len, fade = 1 - (float)b->t / b->life;
+        const int SEG = 10;
+        float px[SEG + 1], py[SEG + 1];
+        for (int k = 0; k <= SEG; k++) {
+            float u = (float)k / SEG, off = (k == 0 || k == SEG) ? 0 : frand(-1, 1) * len * 0.12f;
+            px[k] = b->x0 + dx * u + nx * off; py[k] = b->y0 + dy * u + ny * off;
+        }
+        g_rng = save;
+        for (int pass = 0; pass < 2; pass++) {                       /* glow, then the white core */
+            Strip st; st.n = 0;
+            float w = pass ? b->w * 0.35f : b->w;
+            int col = pass ? C_WHITE : b->col;
+            for (int k = 0; k <= SEG; k++) {
+                strip_add(&st, px[k] + nx * w, py[k] + ny * w, col, fade * (pass ? 1.0f : 0.55f));
+                strip_add(&st, px[k] - nx * w, py[k] - ny * w, col, fade * (pass ? 1.0f : 0.55f));
+            }
+            strip_flush(s, &st);
+        }
+    }
+}
+static void bolts_step(Grey *j) { for (int i = 0; i < N_BOLT; i++) if (j->bo[i].on && ++j->bo[i].t >= j->bo[i].life) j->bo[i].on = 0; }
+
+/* scorch and frost marks on the floor */
+static void mark(Grey *j, int kind, float x, float y, float w, int life) {
+    int best = 0;
+    for (int i = 0; i < N_MARK; i++) { if (!j->mk[i].on) { best = i; break; } if (j->mk[i].t > j->mk[best].t) best = i; }
+    Mark *m = &j->mk[best];
+    m->on = 1; m->t = 0; m->life = life; m->kind = kind; m->x = x; m->y = y; m->w = w;
+}
+static void marks_step(Grey *j) { for (int i = 0; i < N_MARK; i++) if (j->mk[i].on && ++j->mk[i].t >= j->mk[i].life) j->mk[i].on = 0; }
+static void marks_draw(CInstance *s, Grey *j) {
+    for (int i = 0; i < N_MARK; i++) {
+        Mark *m = &j->mk[i];
+        if (!m->on) continue;
+        float a = 1 - (float)m->t / m->life;
+        if (m->kind == 0) spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.16f / 32.0f, 0, RGB(30, 18, 14), 0.55f * a);
+        else {
+            blend(s, 1);
+            spr(s, GR_SHAPE, 1, m->x, m->y + 1, m->w / 32.0f, m->w * 0.18f / 32.0f, 0, C_ICE, 0.35f * a);
+            blend(s, 0);
+        }
+    }
+}
+
+/* the moment a blow lands: a star, sparks, speed lines out from the hit, a flash, element bits */
+static void impact(Grey *j, float x, float y, int col, float power) {
+    fx_at(j, GR_STAR, x, y, 0.7f + 0.5f * power, 0.7f + 0.5f * power, frand(0, 30), 1, 1, C_WHITE);
+    part(j, PK_FLASH, x, y, 0, 0, 4, 6 + 6 * power, C_WHITE);
+    burst(j, PK_SPARK, x, y, (int)(8 + 10 * power), 4.5f + 3 * power, 12, 1.6f, glitch_col());
+    for (int k = 0; k < 6; k++) {                                     /* speed lines bursting out */
+        float a = k * 1.047f + frand(-0.3f, 0.3f);
+        part(j, PK_STREAK, x + cosf_(a) * 8, y + sinf_(a) * 8, cosf_(a) * 7, sinf_(a) * 7, 7, 1.2f, C_WHITE);
+    }
+    switch (col) {
+    case GC_FIRE: burst(j, PK_EMBER, x, y, 10, 3.0f, 34, 2.4f, C_FIRE); part(j, PK_SMOKE, x, y - 4, 0, -0.6f, 30, 10, RGB(90, 90, 96)); break;
+    case GC_ICE: burst(j, PK_FROST, x, y, 10, 2.2f, 36, 3.0f, C_ICE); burst(j, PK_SHARD, x, y, 6, 3.5f, 26, 2.2f, RGB(200, 240, 255)); break;
+    case GC_VOLT: bolt(j, x, y - 70, x + frand(-8, 8), y, 8, 3.5f, C_VOLT); burst(j, PK_SPARK, x, y, 6, 6, 10, 1.4f, C_VOLT); break;
+    default: burst(j, PK_PIXEL, x, y, (int)(8 + 6 * power), 3.2f, 26, 2.2f, glitch_col()); break;
+    }
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -794,6 +1101,7 @@ static void grey_start(CInstance *s, int step) {
     }
 }
 static void move_step(CInstance *s, Grey *j) {
+    if (j->hitstop > 0) { j->hitstop--; bset(s, &g_VAR_hspeed, 0); return; }   /* frozen on the impact */
     int t = ++j->t;
     GPose p; tl_sample(j->move, (float)t, &p);
     if (g_tl_has_mx[j->move]) {                            /* root motion: the timeline walks him */
@@ -966,7 +1274,7 @@ static void special_end(CInstance *s, Grey *j) {
     j->sp_on = 0;
     if (parent_ok(s)) pset_b(s, &g_VAR_can_gethurt, true);
 }
-#define SPC_STRIKE0 16          /* the clones' strikes: one every 9 frames */
+#define SPC_STRIKE0 16          /* the clones' strikes: twelve, one every 6 frames */
 #define SPC_TELE 98             /* he blinks above him */
 #define SPC_SLAM (SPC_TELE + 30)
 static void special_step(CInstance *s, Grey *j, GPose *pose) {
@@ -974,38 +1282,51 @@ static void special_step(CInstance *s, Grey *j, GPose *pose) {
     bset(s, &g_VAR_hspeed, 0); bset(s, &g_VAR_vspeed, 0);
     if (!j->hit_done) target_frozen(s, j, true);
     float tx = j->tgt_x, ty = j->tgt_y;
-    for (int i = 0; i < 8; i++) {
-        if (t == SPC_STRIKE0 + i * 9) {                     /* from either side, some from the air */
-            float side = (i % 2 ? 1.0f : -1.0f) * j->dir;
-            float dy = (i % 3 == 2) ? -40.0f : 0.0f;
-            spawn_clone(j, GT_CL_SC_STRIKE, tx + side * 72, ty + dy, -side, GC_GLITCH);
-            if (i % 2 == 0) play_c(s, GS_CLONE, 0.9 + 0.05 * i);
+    static const float HY[3] = { 0, -42, -20 };
+    for (int i = 0; i < 12; i++) {
+        float side = (i % 2 ? 1.0f : -1.0f) * j->dir, dy = HY[i % 3], dist = 64 + 10 * (i % 3);
+        if (t == SPC_STRIKE0 + i * 6) {                     /* from both sides, high and low */
+            spawn_clone(j, GT_CL_SC_STRIKE, tx + side * dist, ty + dy, -side, GC_GLITCH);
+            if (i % 3 == 0) play_c(s, GS_CLONE, 0.85 + 0.04 * i);
         }
-        if (t == SPC_STRIKE0 + i * 9 + 8) {                 /* each strike brings an element */
+        if (t == SPC_STRIKE0 + i * 6 + 8) {                 /* each strike brings an element */
+            float hx = tx, hy = ty - 30 + dy * 0.4f;
+            bolt(j, tx + side * dist, ty + dy - 30, hx, hy, 6, 2.5f, C_CYAN);
+            j->scr_t = 2;
             switch (i % 4) {
-            case 0: fx_kind(j, GF_FIREBURST, tx, ty - 30, 0.7f, j->dir); break;
-            case 1: spawn_spike(j, tx - 10, ty, 1.0f, -1.0f, 0.12f, j->dir); spawn_spike(j, tx + 10, ty, 1.1f, -1.0f, 0.12f, j->dir); break;
-            case 2: fx_kind(j, GF_BOLT, tx, ty, 1.0f, j->dir); break;
-            case 3: fx_kind(j, GF_GLITCH, tx, ty - 30, 1.4f, j->dir); break;
+            case 0: fx_kind(j, GF_FIREBURST, hx, hy, 0.8f, j->dir); burst(j, PK_EMBER, hx, hy, 14, 3.5f, 36, 2.6f, C_FIRE); break;
+            case 1: spawn_spike(j, tx - 12, ty, 1.0f, -1.0f, 0.12f, j->dir); spawn_spike(j, tx + 12, ty, 1.15f, -1.0f, 0.12f, j->dir); break;
+            case 2: fx_kind(j, GF_BOLT, hx, ty, 1.0f, j->dir);
+                    bolt(j, hx + frand(-10, 10), ty - 200, hx, ty - 6, 10, 4.5f, C_VOLT); burst(j, PK_SPARK, hx, ty - 10, 12, 6, 12, 1.6f, C_VOLT); break;
+            case 3: fx_kind(j, GF_GLITCH, hx, hy, 1.5f, j->dir); burst(j, PK_PIXEL, hx, hy, 18, 4.0f, 30, 2.6f, glitch_col()); break;
             }
         }
     }
     if (t == SPC_TELE) {                                    /* up above him */
         float nx = tx - j->dir * 14;
-        fx_kind(j, GF_GLITCH, sx_(s), sy_(s) - 30, 1.2f, j->dir);
+        fx_kind(j, GF_GLITCH, sx_(s), sy_(s) - 30, 1.4f, j->dir);
+        burst(j, PK_PIXEL, sx_(s), sy_(s) - 30, 24, 4, 30, 2.4f, C_CYAN);
         if (free_at(s, nx, sy_(s))) bset(s, &g_VAR_x, nx);
-        fx_kind(j, GF_SPAWN, sx_(s), sy_(s), 1.4f, j->dir);
-        j->glitch_t = 10;
+        fx_kind(j, GF_SPAWN, sx_(s), sy_(s), 1.6f, j->dir);
+        trails_clear(j);
+        j->glitch_t = 12;
     }
     if (t >= SPC_TELE) {
         int ft = t - SPC_TELE;
         tl_sample(GT_SP_FINALE, (float)ft, pose);
         if (ft == 10) play(s, SND_BALL_CHARGE, 0.8);
         if (ft == 29) play(s, SND_WOOSH3, 0.7);
+        if (ft >= 8 && ft < 30) {                           /* the giant blade charges: energy pours up into it */
+            float bx = sx_(s) + frand(-30, 30), by = sy_(s) - 96 - 60;
+            if (ft % 2 == 0) part(j, PK_STREAK, sx_(s) + frand(-40, 40), sy_(s) - frand(0, 40), 0, -6, 8, 1.4f, C_CYAN);
+            if (ft % 4 == 0) bolt(j, sx_(s), sy_(s) - 110, bx, by, 4, 2.0f, C_CYAN);
+            if (ft % 3 == 0) part(j, PK_BIT, sx_(s) + frand(-20, 20), sy_(s) - frand(20, 80), 0, -1.6f, 26, 1, C_CYAN);
+        }
     } else {
         base_pose(GPZ_CHARGE, pose);
         pose->hy += sinf_(t * 0.8f) * 0.8f;
         if (t % 5 == 0) j->glitch_t = 3;
+        if (t % 2 == 0) part(j, PK_BIT, sx_(s) + frand(-16, 16), sy_(s) - frand(0, 50), 0, -1.2f, 30, 1, (t / 2) % 2 ? C_CYAN : C_MAG);
     }
     if (t == SPC_SLAM && !j->hit_done) {                    /* the giant blade comes down */
         j->hit_done = 1;
@@ -1014,15 +1335,33 @@ static void special_step(CInstance *s, Grey *j, GPose *pose) {
         float cx = c ? (float)sget(c, &g_VAR_x) : tx, cy = c ? (float)sget(c, &g_VAR_y) : ty;
         Hit h = { my_dmg(s) * 10.0, j->dir * 9.0, -9.0, 40, 6, 2.0, 2.0, SPR_MASK64, 1, 1, 0, 1, SPR_HIT_3, C_CYAN, 2 };
         spawn_hit(s, cx, cy - 28, &h);
-        fx_kind(j, GF_SHATTER, cx, cy - 30, 1.6f, j->dir);
-        fx_kind(j, GF_GLITCH, cx, cy - 34, 2.0f, j->dir);
-        fx_kind(j, GF_RING, cx, cy - 1, 1.6f, j->dir);
-        fx_kind(j, GF_PILLAR, cx, cy, 1.0f, j->dir);
+        fx_kind(j, GF_SHATTER, cx, cy - 30, 1.8f, j->dir);
+        fx_kind(j, GF_GLITCH, cx, cy - 34, 2.2f, j->dir);
+        fx_at(j, GR_RING, cx, cy - 1, 1.2f, 1.2f, 0, 2, 1, C_CYAN);
+        fx_at(j, GR_RING, cx, cy - 1, 2.0f, 2.0f, 0, 3, 1, C_MAG);
+        fx_at(j, GR_RING, cx, cy - 1, 2.8f, 2.8f, 0, 4, 1, RGB(120, 190, 235));
+        fx_kind(j, GF_PILLAR, cx, cy, 1.1f, j->dir);
+        fx_at(j, GR_BEAM, cx, cy + 2, 2.6f, 4.0f, 0, 3, 1, C_WHITE);                 /* a pillar of light */
+        fx_at(j, GR_STAR, cx, cy - 30, 3.0f, 3.0f, 0, 2, 1, C_WHITE);
+        burst(j, PK_PIXEL, cx, cy - 30, 70, 7.5f, 46, 2.8f, C_CYAN);
+        burst(j, PK_PIXEL, cx, cy - 30, 30, 6.0f, 40, 2.4f, C_MAG);
+        burst(j, PK_SPARK, cx, cy - 30, 28, 9.0f, 16, 2.0f, C_WHITE);
+        burst(j, PK_EMBER, cx, cy - 10, 20, 4.0f, 50, 2.8f, C_FIRE);
+        burst(j, PK_FROST, cx, cy - 10, 16, 3.0f, 50, 3.2f, C_ICE);
+        for (int k = 0; k < 6; k++) {                       /* lightning strikes all round, ice spikes in a ring */
+            float ox = (k - 2.5f) * 26;
+            bolt(j, cx + ox + frand(-10, 10), cy - 240, cx + ox, cy - 4, 12 + k, 4.0f, k % 2 ? C_VOLT : C_CYAN);
+            spawn_spike(j, cx + ox * 1.2f, cy, 0.9f + 0.1f * (k % 3), -2.0f, 0.05f, j->dir);
+        }
+        for (int k = 0; k < 6; k++) part(j, PK_SMOKE, cx + frand(-20, 20), cy - frand(0, 20), frand(-0.8f, 0.8f), -frand(0.4f, 1.2f), 70, 12, RGB(70, 70, 78));
+        mark(j, 0, cx, cy, 70, 240); mark(j, 1, cx, cy, 90, 240);
         camera_shake(3);
-        play(s, SND_WINLOSE_IMPACT, 1.0); play(s, SND_STRONG2, 0.7);
+        play(s, SND_WINLOSE_IMPACT, 1.0); play(s, SND_STRONG2, 0.7); play(s, SND_EXPLOSION_MEGA, 0.9);
         play_c(s, GS_CRASH, 1.0);
-        j->glitch_t = 16;
+        j->glitch_t = 18;
     }
+    if (t > SPC_SLAM && t < SPC_SLAM + 30 && t % 3 == 0)     /* the crater keeps smoking and sparking */
+        part(j, PK_SMOKE, tx + frand(-24, 24), ty - frand(0, 10), frand(-0.5f, 0.5f), -1.0f, 60, 10, RGB(70, 70, 78));
     if (t >= SPC_DUR) {
         special_end(s, j);
         bset(s, &g_VAR_image_speed, 0.25);
@@ -1037,6 +1376,8 @@ void gml_Object_o_grey_Create_0(CInstance *s, CInstance *o) {
     grey_load_assets(s);
     gml_Object_o_parent_character_Create_0(s, o);        /* event_inherited() */
     grey_reset(slot(s, true), s);
+    slot(s, true)->entry_t = ENTRY_T;
+    slot(s, true)->glitch_t = 10;
     iset(s, &g_VAR_parent, 0);
     iset_b(s, &g_VAR_local_runleft, false);
     iset(s, &g_VAR_combo_next, -1);
@@ -1135,10 +1476,70 @@ void gml_Object_o_grey_Step_0(CInstance *s, CInstance *o) {
     if (((j->drawn.flags & 2) && g_grey_tick % 2 == 0) || (src == 8 && g_grey_tick % 4 == 0))
         ghost_push(j, &j->drawn, x, y, f, (g_grey_tick / 2) % 2 ? C_CYAN : C_MAG);
 
+    trails_push(j, &j->drawn, x, y, f);
+    if (j->entry_t > 0) {                                      /* materialising: pixels rush in to build him */
+        if (j->entry_t == ENTRY_T) {
+            fx_at(j, GR_RING, x, y - 1, 0.8f, 0.8f, 0, 2, 1, C_CYAN);
+            fx_kind(j, GF_SPAWN, x, y, 1.2f, f);
+        }
+        for (int k = 0; k < 3; k++) {
+            float ox = frand(-34, 34), oy = frand(-70, 10);
+            Part *q = part(j, PK_PIXEL, x + ox, y - 30 + oy, -ox / 9.0f, -oy / 9.0f, 9, frand(1.5f, 3), glitch_col());
+            if (q) { q->g = 0; q->drag = 1; }
+        }
+        if (j->entry_t % 8 == 0) j->glitch_t = 4;
+        j->entry_t--;
+    }
+    if (src == 2 && j->prev_loco != 2) {                        /* hit: he glitches and sheds pixels */
+        if (j->glitch_t < 8) j->glitch_t = 8;
+        burst(j, PK_PIXEL, x, y - 34, 10, 3.2f, 24, 2.2f, glitch_col());
+        fx_kind(j, GF_GLITCH, x, y - 34, 0.7f, f);
+    }
+    if (src == 1 && j->prev_loco != 1) {                        /* knocked down: a bigger crash */
+        if (j->glitch_t < 12) j->glitch_t = 12;
+        burst(j, PK_PIXEL, x, y - 14, 18, 4.0f, 30, 2.4f, glitch_col());
+        burst(j, PK_BIT, x, y - 14, 6, 1.5f, 36, 1, C_CYAN);
+        fx_at(j, GR_RING, x, y - 1, 0.6f, 0.6f, 0, 2, 1, C_MAG);
+        for (int k = 0; k < 3; k++) part(j, PK_SMOKE, x + frand(-12, 12), y - 2, frand(-1.2f, 1.2f), -0.4f, 26, 6, RGB(150, 150, 160));
+    }
+    j->prev_loco = src;
+    if (pok && pget(s, &g_VAR_is_dead) > 0.5) {                /* KO: deleted, pixel by pixel */
+        if (j->dead_t < 10000) j->dead_t++;
+        if (j->dead_t <= DEAD_FADE) {
+            for (int k = 0; k < 2; k++)
+                part(j, PK_PIXEL, x + frand(-14, 14), y - frand(0, 30), frand(-0.4f, 0.4f), -frand(0.8f, 2.0f), 34, frand(1.5f, 2.6f), glitch_col());
+            if (j->dead_t % 4 == 0) part(j, PK_BIT, x + frand(-12, 12), y - frand(0, 24), 0, -1.2f, 40, 1, C_CYAN);
+            if (j->dead_t % 10 == 1) j->glitch_t = 4;
+        }
+    } else j->dead_t = 0;
+    bool air = on_air(s);
+    if (!j->sp_on) {
+        if (j->was_air && !air) {                              /* landing: dust and a ring */
+            for (int k = 0; k < 5; k++) part(j, PK_SMOKE, x + frand(-10, 10), y - 2, frand(-1.6f, 1.6f), -frand(0.2f, 0.6f), 26, 6, RGB(150, 150, 160));
+            fx_at(j, GR_RING, x, y - 1, 0.5f, 0.5f, 0, 2, 1, RGB(120, 190, 235));
+        }
+        if (!j->was_air && air && sget(s, &g_VAR_vspeed) < -2)  /* take-off */
+            for (int k = 0; k < 3; k++) part(j, PK_SMOKE, x + frand(-6, 6), y - 1, frand(-1, 1), -0.3f, 20, 5, RGB(150, 150, 160));
+    }
+    j->was_air = air;
+    if (src == 8 && g_grey_tick % 2 == 0)                      /* running: speed lines */
+        part(j, PK_STREAK, x - f * 10 + frand(-4, 4), y - frand(10, 50), -f * 4, 0, 8, 1.2f, (rnd() & 1) ? C_CYAN : C_MAG);
+    if ((j->drawn.flags & 2) && g_grey_tick % 2 == 0)
+        part(j, PK_STREAK, x + frand(-8, 8), y - frand(8, 56), -f * 5, 0, 7, 1.4f, C_WHITE);
+    if (src == 7) {                                            /* charging: data pouring off him */
+        if (g_grey_tick % 2 == 0) part(j, PK_BIT, x + frand(-14, 14), y - frand(0, 40), 0, -frand(0.8f, 1.8f), 30, 1, (rnd() & 1) ? C_CYAN : C_MAG);
+        if (g_grey_tick % 9 == 0) bolt(j, x + frand(-20, 20), y - frand(40, 70), x + frand(-20, 20), y - frand(0, 30), 4, 1.5f, C_CYAN);
+    }
+    if (j->glitch_t > 0 && g_grey_tick % 2 == 0)
+        part(j, PK_PIXEL, x + frand(-12, 12), y - frand(6, 58), frand(-2, 2), frand(-1, 1), 14, frand(1.5f, 3), glitch_col());
+    if (src == 10 && g_grey_tick % 23 == 0)                    /* idle: a stray bit now and then */
+        part(j, PK_BIT, x + frand(-10, 10), y - frand(20, 50), 0, -0.5f, 40, 1, C_CYAN);
     clones_step(s, j);
     proj_step(s, j);
     spikes_step(s, j);
     fx_step(j);
+    parts_step(j); bolts_step(j); marks_step(j);
+    if (j->scr_t > 0) j->scr_t--;
     if (!j->sp_on) {
         RValue v[2] = { rv_real(0.6), rv_real(1) };
         RValue *args[2] = { &v[0], &v[1] };
@@ -1154,46 +1555,86 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
     float x = sx_(s), y = sy_(s), f = facing(s);
     float al = (float)sget(s, &g_VAR_image_alpha);
     if (!(al > 0.01f) || al > 1) al = 1;
-    if (!on_air(s) && !j->sp_on)                            /* a soft shadow on the floor */
-        spr(s, GR_SHAPE, 1, x, y + 1, 0.55f, 0.1f, 0, 0, 0.25f * al);
-    /* ice spikes behind */
-    for (int i = 0; i < N_SPIKE; i++) {
+    float vis = 1;                                           /* materialising / dissolving */
+    if (j->entry_t > 0) vis = (1 - (float)j->entry_t / ENTRY_T) * ((g_grey_tick & 2) ? 1.0f : 0.6f);
+    if (j->dead_t > 0) { float d = 1 - (float)j->dead_t / DEAD_FADE; vis *= d < 0.35f ? 0.35f : d; }
+    g_vtx_budget = 1400;
+    marks_draw(s, j);                                        /* scorch and frost on the floor */
+    if (!on_air(s) && !j->sp_on)                            /* a soft shadow */
+        spr(s, GR_SHAPE, 1, x, y + 1, 0.55f, 0.1f, 0, 0, 0.25f * al * vis);
+    for (int i = 0; i < N_SPIKE; i++) {                      /* ice spikes behind */
         Spike *k = &j->sp[i];
         if (k->on) spr(s, GR_SPIKE, (float)(k->t / 3), k->x, k->y + 1, k->f * k->size, k->size, 0, C_WHITE, 1);
     }
-    /* afterimages */
     blend(s, 1);
-    for (int i = 0; i < N_GHOST; i++) {
+    for (int i = 0; i < N_GHOST; i++) {                      /* afterimages */
         Ghost *g = &j->gh[i];
         if (g->on) draw_stick(s, &g->p, g->x, g->y, g->f, g->col, g->col, g->col, 0.32f * (1 - g->t / 12.0f), 0);
     }
+    trails_draw(s, j, (j->move != MOVE_NONE || j->sp_on) ? 1.0f : 0.7f);   /* ribbons where limbs swept */
     blend(s, 0);
-    /* clones */
-    for (int i = 0; i < N_CLONE; i++) {
+    for (int i = 0; i < N_CLONE; i++) {                      /* clones: holograms */
         Clone *c = &j->cl[i];
         if (!c->on) continue;
         GPose p; tl_sample(c->tl, (float)c->t, &p);
         float ca = c->fade ? 0.85f * (1 - c->fade / 8.0f) : (c->t < 4 ? 0.85f * c->t / 4.0f : 0.85f);
+        ca *= 0.8f + 0.2f * (float)((g_grey_tick + i) % 4 != 0);           /* flicker */
         float jit = (c->fade || c->t < 4) ? frand(-2, 2) : 0;
-        draw_glitched(s, &p, c->x + c->f * p.mx + jit, c->y, c->f, C_CLONE, C_CLONEB, C_CLONEL, ca, 1.6f);
+        float cx = c->x + c->f * p.mx + jit;
+        blend(s, 1);
+        g_extra_w = 7.0f;
+        draw_stick(s, &p, cx, c->y, c->f, C_CYAN, C_CYAN, C_CYAN, 0.3f * ca, 0);
+        g_extra_w = 0;
+        blend(s, 0);
+        draw_glitched(s, &p, cx, c->y, c->f, C_CLONE, C_CLONEB, C_CLONEL, ca, 1.6f);
+        blend(s, 1);
+        for (int k = 0; k < 3; k++) {                       /* scanlines running down him */
+            float sy = c->y - 62 + (float)(((g_grey_tick * 2 + k * 21) % 66));
+            spr(s, GR_SHAPE, 0, cx, sy, 30 / 32.0f, 1 / 32.0f, 0, C_CYAN, 0.35f * ca);
+        }
+        blend(s, 0);
     }
-    /* Grey */
-    float split = j->glitch_t > 0 ? 1.5f + frand(0, 2.5f) : 0;
+    /* Grey: a neon glow round him, then the stickman, then the glitch */
+    float split = j->glitch_t > 0 ? 1.5f + frand(0, 3.0f) : (vis < 0.99f ? 2.0f : 0);
+    al *= vis;
     float jit = j->glitch_t > 0 && (g_grey_tick % 3 == 0) ? frand(-2.5f, 2.5f) : 0;
+    if (j->hitstop > 0) jit = frand(-1.5f, 1.5f);
+    float glow = j->sp_on ? 0.5f : j->src == 7 ? 0.36f + 0.12f * sinf_(g_grey_tick * 0.4f)
+               : (j->move != MOVE_NONE ? 0.3f : 0.1f + 0.04f * sinf_(j->aura_t * 0.055f));
+    int gcol = (g_grey_tick % 40 < 3 || (j->glitch_t > 0 && (g_grey_tick & 1))) ? C_MAG : C_CYAN;
+    blend(s, 1);
+    g_extra_w = 9.0f;                                        /* a wide faint halo */
+    draw_stick(s, &j->drawn, x + jit, y, f, gcol, gcol, gcol, glow * 0.4f * al, 0);
+    g_extra_w = 4.5f;                                        /* and a tighter, brighter rim */
+    draw_stick(s, &j->drawn, x + jit, y, f, gcol, gcol, gcol, glow * al, 0);
+    g_extra_w = 0;
+    blend(s, 0);
     if (j->src == 6) {                                      /* guarding: the hex barrier */
         V2 J[12]; fk(&j->drawn, x, y, f, J);
         spr(s, GR_HEX, (float)((g_grey_tick / 4) % 4), J[7].x + f * 4, y + 2, f * 0.8f, 0.9f, 0, C_WHITE, 0.75f * al);
+        blend(s, 1);
+        spr(s, GR_HEX, (float)((g_grey_tick / 4) % 4), J[7].x + f * 4, y + 2, f * 0.9f, 1.0f, 0, C_CYAN, 0.25f * al);
+        blend(s, 0);
     }
     if (j->src == 7 && g_grey_tick % 3 == 0)                /* charging: bits of glitch fly off */
         fx_at(j, GR_GLITCH, x + frand(-14, 14), y - frand(10, 60), 0.35f, 0.35f, 0, 2, 0, C_WHITE);
     draw_glitched(s, &j->drawn, x + jit, y, f, C_FILL, C_BACK, C_LINE, al, split);
-    if (j->glitch_t > 0 && g_grey_tick % 2 == 0)
-        spr(s, GR_GLITCH, (float)(g_grey_tick % 8), x + frand(-10, 10), y - frand(12, 56), 0.4f, 0.4f, 0, C_WHITE, 0.9f);
-    /* projectiles */
+    if (j->glitch_t > 0) {                                  /* tear bars and glitch blocks across him */
+        blend(s, 1);
+        for (int k = 0; k < 3; k++)
+            spr(s, GR_SHAPE, 0, x + frand(-6, 6), y - frand(8, 58), frand(24, 54) / 32.0f, frand(1, 2.4f) / 32.0f, 0, glitch_col(), 0.8f);
+        blend(s, 0);
+        if (g_grey_tick % 2 == 0)
+            spr(s, GR_GLITCH, (float)(g_grey_tick % 8), x + frand(-10, 10), y - frand(12, 56), 0.4f, 0.4f, 0, C_WHITE, 0.9f);
+    }
+    /* projectiles, each with a glow */
     for (int i = 0; i < N_PROJ; i++) {
         Proj *p = &j->pr[i];
         if (!p->on) continue;
         float ang = -atan2f_(p->vy, p->vx) * 57.29578f;
+        blend(s, 1);
+        spr(s, GR_SHAPE, 1, p->x, p->y, 0.7f, 0.7f, 0, p->kind == GP_FIRE ? C_FIRE : p->kind == GP_SHARD ? C_ICE : C_CYAN, 0.35f);
+        blend(s, 0);
         if (p->kind == GP_FIRE) {
             spr(s, GR_FIRE, (float)((p->t / 2) % 8), p->x, p->y, 0.5f, 0.5f, ang, C_WHITE, 1);
         } else if (p->kind == GP_SHARD) {
@@ -1205,8 +1646,12 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
             blend(s, 0);
         }
     }
-    /* one-shot effects */
-    for (int i = 0; i < N_FX; i++) {
+    blend(s, 1);
+    bolts_draw(s, j);                                        /* lightning */
+    parts_draw(s, j, 1);                                     /* sparks, embers, frost, streaks, bits */
+    blend(s, 0);
+    parts_draw(s, j, 0);                                     /* pixels, smoke, ice chips */
+    for (int i = 0; i < N_FX; i++) {                         /* one-shot effects */
         Fx *e = &j->fx[i];
         if (!e->on) continue;
         if (e->add) blend(s, 1);
@@ -1217,14 +1662,31 @@ void gml_Object_o_grey_Draw_0(CInstance *s, CInstance *o) {
         spr(s, GR_ERROR, (float)(j->fail_t % 4), x, y - 76, 0.6f, 0.6f, 0, 0x5555FF, j->fail_t / 24.0f);
 }
 
-/* GUI layer: the SYSTEM CRASH screen glitch */
+/* GUI layer: screen tears on his heaviest blows, and the SYSTEM CRASH screen */
 void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     (void)o;
     Grey *j = slot(s, false);
-    if (!j || !j->sp_on) return;
+    if (!j || (!j->sp_on && j->scr_t <= 0)) return;
     float gw = (float)legacy0(s, &g_FUNC_display_get_gui_width);
     float gh = (float)legacy0(s, &g_FUNC_display_get_gui_height);
     if (gw < 16 || gh < 16) return;
+    if (!j->sp_on) {                                         /* a heavy blow: the picture tears for a moment */
+        float k = j->scr_t / 5.0f;
+        blend(s, 1);
+        for (int b = 0; b < 4; b++) {
+            float yy = frand(0, gh - 10), hh = frand(2, 12);
+            YYGML_draw_set_colour(b % 2 ? C_CYAN : C_MAG);
+            YYGML_draw_set_alpha(0.16f * k);
+            YYGML_draw_rectangle(frand(-30, 0), yy, gw + frand(0, 30), yy + hh, false);
+        }
+        blend(s, 0);
+        if (j->scr_t >= 4) {
+            YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(0.14f);
+            YYGML_draw_rectangle(0, 0, gw, gh, false);
+        }
+        YYGML_draw_set_colour(C_WHITE); YYGML_draw_set_alpha(1);
+        return;
+    }
     int t = j->sp_t;
     float in = t < 12 ? t / 12.0f : (t > SPC_DUR - 16 ? (SPC_DUR - t) / 16.0f : 1.0f);
     if (in < 0) in = 0;
@@ -1235,23 +1697,61 @@ void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     YYGML_draw_set_alpha(in);
     YYGML_draw_rectangle(0, 0, gw, bar, false);
     YYGML_draw_rectangle(0, gh - bar, gw, gh, false);
-    blend(s, 1);                                             /* torn colour bands */
-    for (int k = 0; k < 3; k++) {
-        float yy = frand(bar, gh - bar - 8), hh = frand(2, 10);
-        YYGML_draw_set_colour(k % 2 ? C_CYAN : C_MAG);
-        YYGML_draw_set_alpha(0.18f * in);
+    blend(s, 1);                                             /* torn colour bands, more and more of them */
+    int nb = 3 + (t < SPC_SLAM ? t / 18 : 2);
+    for (int k = 0; k < nb; k++) {
+        float yy = frand(bar, gh - bar - 8), hh = frand(2, 12);
+        YYGML_draw_set_colour(k % 3 == 0 ? C_WHITE : k % 2 ? C_CYAN : C_MAG);
+        YYGML_draw_set_alpha(0.16f * in);
         YYGML_draw_rectangle(frand(-40, 0), yy, gw + frand(0, 40), yy + hh, false);
     }
+    if (j->scr_t > 0)                                        /* each clone strike jolts the picture */
+        for (int k = 0; k < 2; k++) {
+            float yy = frand(bar, gh - bar - 20), hh = frand(10, 26);
+            YYGML_draw_set_colour(k ? C_CYAN : C_WHITE);
+            YYGML_draw_set_alpha(0.3f);
+            YYGML_draw_rectangle(frand(-60, 0), yy, gw + frand(0, 60), yy + hh, false);
+        }
+    for (int k = 0; k < (t < SPC_SLAM ? t / 8 : 10); k++) {  /* dead pixels raining down the screen */
+        float px = (float)((k * 73 + 17) % 97) / 97.0f * gw, py = (float)(((t * (5 + k % 4)) + k * 131) % (int)gh);
+        float sz = 4 + (k % 3) * 3;
+        YYGML_draw_set_colour(k % 3 == 0 ? C_WHITE : k % 2 ? C_CYAN : C_MAG);
+        YYGML_draw_set_alpha(0.5f * in);
+        YYGML_draw_rectangle(px, py, px + sz, py + sz, false);
+    }
     blend(s, 0);
-    if (t >= SPC_SLAM && t < SPC_SLAM + 6) {                 /* the flash */
+    int dt = t - SPC_SLAM;
+    if (dt >= 1 && dt <= 10) {                               /* the blue screen of death, held */
+        YYGML_draw_set_colour(BSOD_BLUE);
+        YYGML_draw_set_alpha(0.94f);
+        YYGML_draw_rectangle(0, 0, gw, gh, false);
         YYGML_draw_set_colour(C_WHITE);
-        YYGML_draw_set_alpha(1 - (t - SPC_SLAM) / 6.0f);
+        YYGML_draw_set_alpha(0.85f);
+        YYGML_draw_rectangle(gw * 0.12f, gh * 0.44f, gw * 0.12f + gh * 0.05f, gh * 0.49f, false);   /* a cursor block */
+        for (int l = 0; l < 7; l++) {                        /* lines of crash text, typed out */
+            float ly = gh * 0.52f + l * gh * 0.045f, lw = gw * (0.25f + 0.08f * ((l * 37) % 5));
+            float typed = clampf((dt - l * 0.8f) / 3.0f, 0, 1);
+            if (typed > 0) YYGML_draw_rectangle(gw * 0.12f, ly, gw * 0.12f + lw * typed, ly + gh * 0.018f, false);
+        }
+    } else if (dt > 10 && dt <= 18) {                        /* ... and it breaks up, slice by slice */
+        static const unsigned char ORDER[10] = { 3, 7, 1, 9, 5, 0, 8, 2, 6, 4 };
+        YYGML_draw_set_colour(BSOD_BLUE);
+        for (int k = 0; k < 10; k++) {
+            if (dt - 10 > ORDER[k] * 8 / 10) continue;       /* this slice is gone */
+            float y0 = gh * k / 10.0f, sh = frand(-gw * 0.06f, gw * 0.06f);
+            YYGML_draw_set_alpha(0.9f);
+            YYGML_draw_rectangle(sh, y0, gw + sh, y0 + gh / 10.0f + 1, false);
+        }
+    }
+    if (dt >= 0 && dt < 3) {                                 /* the flash */
+        YYGML_draw_set_colour(C_WHITE);
+        YYGML_draw_set_alpha(1 - dt / 3.0f);
         YYGML_draw_rectangle(0, 0, gw, gh, false);
     }
-    if (t >= SPC_SLAM && t < SPC_SLAM + 44) {                /* FATAL ERROR */
-        float k = gw / 600.0f * 2.2f;
-        float a = t < SPC_SLAM + 34 ? 1.0f : (SPC_SLAM + 44 - t) / 10.0f;
-        spr(s, GR_FATAL, (float)((t / 3) % 4), gw * 0.5f + frand(-2, 2), gh * 0.32f, k, k, 0, C_WHITE, a);
+    if (t >= SPC_SLAM && t < SPC_SLAM + 48) {                /* FATAL ERROR */
+        float k = gw / 600.0f * 2.4f;
+        float a = t < SPC_SLAM + 36 ? 1.0f : (SPC_SLAM + 48 - t) / 12.0f;
+        spr(s, GR_FATAL, (float)((t / 3) % 4), gw * 0.5f + frand(-3, 3), gh * 0.3f, k, k, 0, C_WHITE, a);
     }
     YYGML_draw_set_colour(C_WHITE);
     YYGML_draw_set_alpha(1);

@@ -218,7 +218,7 @@ def st_iexists():
 def st_draw_ext():
     spr = sW(1)
     if spr not in sprites: calls.append(('BAD_SPRITE_DRAW', spr))
-    calls.append(('draw', spr, round(S(0), 2), state['blend'], round(S(3), 2)))
+    calls.append(('draw', spr, round(S(0), 2), state['blend'], round(S(3), 2), round(S(6), 3)))
 def st_draw_self():
     i = by_ptr.get(X(0))
     calls.append(('draw_self', int(i.get('sprite_index')) if i and isinstance(i.get('sprite_index'), (int, float)) else None))
@@ -293,7 +293,8 @@ STUB = {
     'YYGML_Variable_SetValue': st_setvalue(False), 'Variable_SetValue_Direct': st_setvalue(True),
     'Variable_GetValue_Direct': st_getdirect, 'YYGML_FindInstance': st_find,
     'YYGML_CallLegacyFunction': st_legacy, 'YYGML_draw_sprite_ext': st_draw_ext, 'YYGML_draw_self': st_draw_self,
-    'YYGML_draw_set_alpha': lambda: None, 'YYGML_draw_set_colour': lambda: None, 'YYGML_draw_rectangle': lambda: None,
+    'YYGML_draw_set_alpha': lambda: None, 'YYGML_draw_set_colour': lambda: calls.append(('colour', W(0))),
+    'YYGML_draw_rectangle': lambda: calls.append(('rect', round(S(0)), round(S(1)), round(S(2)), round(S(3)))),
     'F_SpriteAdd': st_sprite_add, 'F_SpriteExists': st_noop_ret, 'F_AudioCreateStream': st_stream,
     'F_AudioPlaySound': st_play, 'F_AudioStopSound': st_noop_ret, 'F_AudioSoundPitch': st_noop_ret,
     'F_GPUSetBlendMode': st_blend, 'F_InstanceCreateDepth': st_icreate, 'F_InstanceNumber': st_inum,
@@ -944,7 +945,7 @@ call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
 check(menu.get('char_name') == 'Grey' and menu.get('char_obj') == 687, 'name / object 687')
 check(sprites.get(menu.get('char_face'), ('',))[0] == 'grey_face.png', 'portrait card = grey_face.png')
 ngr = len(sprites) - nspr
-check(ngr == 33 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
+check(ngr == 37 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
 check(any(c[0] == 'object_set_sprite' and c[1] == 687 for c in calls), 'object_set_sprite(o_grey, preview)')
 
 print('[23] Grey: create + alarm0')
@@ -982,9 +983,11 @@ def gtick(press_next=True, draw=True, gui=False, physics=True):
     if draw: call('gml_Object_o_grey_Draw_0', grey.ptr, grey.ptr)
     if gui: call('gml_Object_o_grey_Draw_64', grey.ptr, grey.ptr)
 
+g_strips = []                                            # vertex counts of the primitive strips drawn
+GBAD = ('BAD_SPRITE_DRAW', 'PRIM_NESTED', 'VERTEX_OUTSIDE', 'PRIM_END_UNOPENED', 'BAD_ALPHA')
 def grun(start, frames=400, press=True, setup=None):
     seen, hits, xs = set(), [], []
-    calls.clear(); grey.set('combo_next', start); grey.set('hspeed', 0)
+    calls.clear(); grey.set('combo_next', start); grey.set('hspeed', 0); g_strips.clear()
     if setup: setup()
     call('gml_Object_o_grey_Alarm_3', grey.ptr, grey.ptr)
     for _ in range(frames):
@@ -993,12 +996,24 @@ def grun(start, frames=400, press=True, setup=None):
         new = calls[n0:]
         seen |= {sprites[c[1]][0] for c in new if c[0] == 'draw' and c[1] in sprites}
         hits += [c for c in new if c[0] == 'instance_create' and c[1] == 224]
-        if any(c[0] == 'BAD_SPRITE_DRAW' for c in new): seen.add('BAD_SPRITE_DRAW')
+        g_strips.extend(c[1] for c in new if c[0] == 'prim_end')
+        if any(c[0] in GBAD for c in new): seen.add('BAD_SPRITE_DRAW')
         xs.append((grey.get('x'), grey.get('image_xscale')))
         if gr_ctrl.get('is_attacking') == 0: break
         calls.clear()
     for _ in range(12): gtick(press_next=False)          # clones / projectiles finish
     return seen, hits, xs
+
+def head_alpha():                                        # Grey's head fill: the disc at G_HEAD_R / 16, normal blend
+    a = [c[5] for c in calls if c[0] == 'draw' and c[1] in sprites and sprites[c[1]][0] == 'grey_shape.png'
+         and c[2] == 1 and c[3] == 0 and abs(c[4] - 0.38) < 0.006]
+    return max(a) if a else None
+
+print('[23b] Grey materialises at the start of the match')
+calls.clear(); gtick(press_next=False); a0 = head_alpha()
+for _ in range(44): calls.clear(); gtick(press_next=False)
+a1 = head_alpha()
+check(a0 is not None and a0 < 0.2 and a1 is not None and a1 > 0.99, f'fades in out of pixels: head alpha {a0} -> {a1}')
 
 print('[24] Grey combo A: jab-cross, clone cut, frost rise, fireball flip, fatal glitch')
 grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 455)
@@ -1007,8 +1022,11 @@ check(len(hits) >= 14, f'hitboxes: {len(hits)}')
 check({'grey_shape.png', 'grey_sword.png', 'grey_spear.png', 'grey_spike.png', 'grey_fire.png', 'grey_spawn.png',
        'grey_shatter.png', 'grey_arc.png'} <= seen, f'stickman, glitch sword, spear, ice spikes, fireballs, clones, shatter, swing drawn (missing {sorted({"grey_shape.png", "grey_sword.png", "grey_spear.png", "grey_spike.png", "grey_fire.png", "grey_spawn.png", "grey_shatter.png", "grey_arc.png"} - seen)})')
 check(any(x > 455 and xsc < 0 for x, xsc in xs), 'Fatal Glitch: teleported behind him and turned round')
-check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws, primitives well formed')
 check(gr_ctrl.get('is_attacking') == 0 and grey.get('combo_next') == -1, 'the finisher ends the combo')
+check({'grey_star.png', 'grey_smoke.png'} <= seen, f'impact stars and fireball smoke drawn (missing {sorted({"grey_star.png", "grey_smoke.png"} - seen)})')
+check(len(g_strips) >= 20 and all(4 <= n <= 48 and n % 2 == 0 for n in g_strips),
+      f'ribbon trails / lightning as triangle strips: {len(g_strips)} strips, sizes {sorted(set(g_strips))[:8]}')
 
 print('[25] Grey combo B: roundhouse, twin clone kick, ice lance shatter, meteor axe')
 grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 455)
@@ -1028,6 +1046,19 @@ for start, label, setup in ((10, 'Glitch Sweep Blade', None), (60, 'Frost Slide'
     gr_ctrl.set('is_running', 0)
     check(len(hits) >= 1 and 'BAD_SPRITE_DRAW' not in seen, f'{label}: {len(hits)} hits')
     for _ in range(30): gtick(press_next=False)
+
+print('[26b] Grey: impacts and hit-stop only on blows that land')
+def sweep(foe_x):
+    grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', foe_x)
+    seen, hits, xs = grun(10, press=False)
+    for _ in range(30): gtick(press_next=False)
+    return len(xs), seen, len(hits)
+n_hit, seen_hit, h1 = sweep(450)
+n_miss, seen_miss, h2 = sweep(1400)
+check(h1 == h2 >= 1, f'same hitboxes either way ({h1} / {h2})')
+check('grey_star.png' in seen_hit and 'grey_star.png' not in seen_miss, 'impact star when it lands, none on a whiff')
+check(n_hit > n_miss, f'hit-stop only when it lands: {n_hit} frames vs {n_miss} on a whiff')
+gfoe.set('x', 450)
 
 print('[27] Grey skills: Clone Legion, Element Overload')
 grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 470)
@@ -1052,15 +1083,22 @@ gtick(gui=True)
 gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
 check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar spent, untouchable')
 check(grey.get('depth') == -15000, 'drawn over the HUD')
-seen, hits, spawns = set(), [], 0
+seen, hits, spawns, blue, bad, maxd = set(), [], 0, 0, False, 0
 for t in range(200):
     calls.clear(); gtick(gui=True)
     seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
     hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
+    blue += sum(1 for c in calls if c[0] == 'colour' and c[1] == (16 | 44 << 8 | 178 << 16))
+    bad |= any(c[0] in GBAD for c in calls)
+    maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'prim_end')))
     if t < 150: check_x = gfoe.get('x')
-check(len(hits) >= 9, f'eight clone strikes and the blade: {len(hits)} hits')
-check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 'grey_fireburst.png', 'grey_spike.png'} <= seen,
-      f'clones, elements, FATAL ERROR drawn (missing {sorted({"grey_spawn.png", "grey_fatal.png", "grey_shatter.png", "grey_bolt.png", "grey_fireburst.png", "grey_spike.png"} - seen)})')
+check(len(hits) >= 13, f'twelve clone strikes and the blade: {len(hits)} hits')
+check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 'grey_fireburst.png', 'grey_spike.png',
+       'grey_beam.png', 'grey_star.png', 'grey_smoke.png'} <= seen,
+      f'clones, elements, the beam, FATAL ERROR drawn (missing {sorted({"grey_spawn.png", "grey_fatal.png", "grey_shatter.png", "grey_bolt.png", "grey_fireburst.png", "grey_spike.png", "grey_beam.png", "grey_star.png", "grey_smoke.png"} - seen)})')
+check(blue >= 3, f'the blue screen of death flashes after the blade ({blue} frames)')
+check(not bad, 'no invalid draws or primitives during the special')
+check(maxd < 1400, f'draw calls per frame stay bounded (max {maxd})')
 check(abs(check_x - 470) < 1, 'the opponent is held in place until the blade')
 check(gr_ctrl.get('can_gethurt') == 1 and grey.get('depth') != -15000, 'vulnerable again, depth restored')
 calls.clear(); gtick()
@@ -1096,6 +1134,21 @@ check(all(n >= 40 for _, n in states), f'the stickman is drawn bone by bone in e
 calls.clear(); gr_ctrl.set('key_defend', 1); gtick(); gtick()
 check('grey_hex.png' in {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}, 'guard shows the glitch barrier')
 gr_ctrl.set('key_defend', 0)
+
+print('[30b] Grey glitches when hit, crashes when knocked down, is deleted when K.O.')
+def drawn_names_g(): return {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
+calls.clear(); gr_ctrl.set('is_hurt', 1); gtick(); gtick()
+check('grey_glitch.png' in drawn_names_g(), 'hit: a glitch burst')
+gr_ctrl.set('is_hurt', 0); gr_ctrl.set('is_fallen', 1)
+calls.clear(); gtick(); gtick()
+check({'grey_glitch.png', 'grey_ring.png', 'grey_smoke.png'} <= drawn_names_g(), 'knocked down: glitch, a ring, dust')
+g_ectrl.set('is_dead', 0); gr_ctrl.set('is_dead', 1)
+for _ in range(100): calls.clear(); gtick()
+ad = head_alpha()
+check(ad is not None and 0.3 < ad < 0.4, f'K.O.: dissolves down to a faint ghost (head alpha {ad})')
+gr_ctrl.set('is_dead', 0); gr_ctrl.set('is_fallen', 0)
+for _ in range(3): calls.clear(); gtick()
+check(head_alpha() is not None and head_alpha() > 0.99, 'back to normal when the round restarts')
 
 print('[31] Grey destroy')
 calls.clear(); call('gml_Object_o_grey_Destroy_0', grey.ptr, grey.ptr)
