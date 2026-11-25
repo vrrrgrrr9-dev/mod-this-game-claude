@@ -166,22 +166,27 @@ parallaxes as the camera pans). If a device never runs Draw Begin, the normal Dr
 In the cutscene's last act the rooster is drawn live from his 2x sprites, so he stays sharp on any
 screen size. Offline only, same as Jeff.
 
-## Crash in the Scyther mirror match
+## Crash in Event Horizon Cleave
 
-Reported from play: Scyther vs Scyther, the game froze and closed as Event Horizon Cleave slammed
-down. Under the emulator, our code never looped or touched bad memory in that scene: a fuzz test
-with two Scythers and Jeff using random moves ran more than 12,000 frames without a fault. So the
-fix hardens what the code asks the engine to do:
+Reported from play twice, in two different matches: Scyther vs Scyther on the void stage, and
+Scyther vs Jeff on the training stage. Frame by frame, both screen recordings stop at the same
+instant. The giant tear is open, Scyther is in the cleave's recovery pose, and the screen then
+freezes and the app closes. That is the move's second event, about 2/3 s in, "the tear snaps
+shut". It spawned a second knockdown hit, a burst, a harder camera shake (4) and started a
+streamed sound at a raised pitch. Under the emulator none of this ever faulted. The game's code
+for audio, hits and the camera can't be stepped through here, so the exact failing call isn't
+known.
 
-* sounds: our OGGs are streamed (`audio_create_stream`; the engine exports no way to load them into
-  memory), and every playing copy decodes on its own thread. A mirror match fires them twice as
-  often. Now a stream never plays twice at once, and at most 3 to 4 of ours play together;
-* triangle strips: they are only sent when they have at least 4 finite vertices, and each draw has
-  a vertex budget;
-* angle and sine helpers are bounded, so no loop can spin on a huge or NaN value;
-* Create always starts from a clean state, because instances destroyed by a room change never run
-  Destroy and their slot could be matched again;
-* an unused 4 MB scythe texture is gone.
+What changed:
+
+* Event Horizon Cleave no longer has that second event. The slam is now the knockdown, with the
+  damage of both old hits combined. The tear seals with its own animation and nothing fires as it
+  closes. A test checks this: one hit, on the slam, and nothing after it.
+* Our streamed sounds (both fighters): the pitch is only set on a sound that really started (a
+  failed start returns -1, which the old code passed on). At most 3 of Scyther's streams play at
+  once, and at most one new one starts per frame.
+* Earlier hardening stays: no stream plays twice at once, triangle strips are checked, the angle
+  and sine helpers are bounded, and Create starts from a clean state.
 
 This is not confirmed on a phone yet.
 

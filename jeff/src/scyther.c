@@ -218,8 +218,8 @@ static double play_v(CInstance *s, int snd, double pitch) {
     RValue r = rv_undef();
     RValue a[3] = { rv_real(snd), rv_real(10), rv_real(0) };
     F_AudioPlaySound(&r, s, s, 3, a);
-    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? 0 : rv_num(&r);
-    if (pitch != 1.0 && (r.kind & KIND_MASK) != VALUE_UNDEFINED) {
+    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? -1 : rv_num(&r);
+    if (pitch != 1.0 && v >= 0) {                        /* -1 = it did not start: leave it alone */
         RValue r2 = rv_undef();
         RValue b[2] = { r, rv_real(pitch) };
         F_AudioSoundPitch(&r2, s, s, 2, b);
@@ -234,16 +234,21 @@ static bool voice_playing(CInstance *s, double v) {
     return fcall1_audio(s, v);
 }
 /* our sounds are OGG files opened with audio_create_stream: every copy that plays decodes on its
-   own thread.  A mirror match fires them twice as often, so: never two copies of the same stream at
-   once, and at most 4 of ours alive (the game's own sounds are not limited). */
+   own thread.  So: never two copies of the same stream at once, at most 3 of ours alive, at most one
+   new one per frame, and the pitch is only set on a voice that really started (the game's own
+   sounds are not limited). */
 static double g_scy_voice[SCS_COUNT];
+static unsigned g_scy_tick, g_scy_last_start = 0xffffffffu;   /* (tick: Step count, see Step_0) */
 static void play_c(CInstance *s, int which, double pitch) {
     if (which < 0 || which >= SCS_COUNT || g_scy_snd[which] < 0) return;
+    if (g_scy_last_start == g_scy_tick) return;          /* one new stream per frame */
     if (voice_playing(s, g_scy_voice[which])) return;
     int alive = 0;
     for (int k = 0; k < SCS_COUNT; k++) if (voice_playing(s, g_scy_voice[k])) alive++;
-    if (alive >= 4) return;
-    g_scy_voice[which] = play_v(s, g_scy_snd[which], pitch);
+    if (alive >= 3) return;
+    double v = play_v(s, g_scy_snd[which], pitch);
+    g_scy_voice[which] = v > 0 ? v : 0;
+    g_scy_last_start = g_scy_tick;
 }
 
 static void blend(CInstance *s, int mode) {
@@ -935,7 +940,10 @@ static void step_cleave(CInstance *s, Scy *j, int t) {       /* Event Horizon Cl
         float x = sx_(s), y = sy_(s);
         j->ghosting = 0;
         rift(s, j, 30, -48, 90, 0.85f, 1);
-        melee(s, j, 30, -40, SPR_MASK64, 1.3f, 1.7f, 1.0, 2, -2, 24, 0, SPR_HIT_3);
+        /* the slam is the knockdown. (It used to be a stun here plus a second knockdown "when the tear
+           snaps shut" at t = 40, with a burst, a harder shake and a streamed sound: on the phone the
+           game froze and closed at exactly that moment, twice, so that second event is gone.) */
+        melee(s, j, 30, -40, SPR_MASK64, 1.4f, 1.7f, 1.7, 7, -7.5, 30, 1, SPR_HIT_3);
         ring(j, x + j->dir * 26, y - 1, 8, 100, 0.24f, 5.0f, 24, C_VIOLET, 1.0f, 0);
         debris(j, x + j->dir * 26, y, 12, 1.0f);
         squash(j, 1.22f, 0.8f);
@@ -943,14 +951,7 @@ static void step_cleave(CInstance *s, Scy *j, int t) {       /* Event Horizon Cl
         play_c(s, SCS_RIP, 0.8); play(s, SND_STRONG2, 0.9);
     }
     if (t == 27) ring(j, sx_(s) + j->dir * 26, sy_(s) - 1, 6, 62, 0.24f, 3.0f, 18, C_WHITE, 0.7f, 0);
-    if (t == 40) {                                            /* the tear snaps shut: knockdown */
-        float x = sx_(s) + j->dir * 30, y = sy_(s) - 40;
-        Hit h = { my_dmg(s) * 1.25, j->dir * 8.0, -8.0, 30, 7, 1.6, 1.6, SPR_MASK64, 1, 1, 1, 1, SPR_HIT_3, C_VIOLET, 2 };
-        spawn_hit(s, x, y, &h);
-        fx_at(j, SC_BH_BURST, x, y, 0.55f, 0.55f, 0, 2, 1);
-        camera_shake(4);
-        play_c(s, SCS_COLLAPSE, 1.2);
-    }
+    /* the tear seals on its own (its sealing frames); no second event */
 }
 /* run + attack ---------------------------------------------------------------------------------- */
 static void step_dash(CInstance *s, Scy *j, int t) {         /* Meteor Dash: straight through him */
@@ -1797,6 +1798,7 @@ void gml_Object_o_scyther_Draw_72(CInstance *s, CInstance *o) {
 void gml_Object_o_scyther_Step_0(CInstance *s, CInstance *o) {
     Scy *j = slot(s, true);
     j->aura_t++;
+    g_scy_tick++;
     if (j->fail_t > 0) j->fail_t--;
     if (j->void_on) {
         j->void_t++;

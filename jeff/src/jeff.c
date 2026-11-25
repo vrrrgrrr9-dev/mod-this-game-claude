@@ -202,8 +202,8 @@ static double play_v(CInstance *s, int snd, double pitch) {
     RValue r = rv_undef();
     RValue a[3] = { rv_real(snd), rv_real(10), rv_real(0) };
     F_AudioPlaySound(&r, s, s, 3, a);
-    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? 0 : rv_num(&r);
-    if (pitch != 1.0 && (r.kind & KIND_MASK) != VALUE_UNDEFINED) {
+    double v = (r.kind & KIND_MASK) == VALUE_UNDEFINED ? -1 : rv_num(&r);
+    if (pitch != 1.0 && v >= 0) {                        /* -1 = it did not start: leave it alone */
         RValue r2 = rv_undef();
         RValue b[2] = { r, rv_real(pitch) };
         F_AudioSoundPitch(&r2, s, s, 2, b);
@@ -222,7 +222,8 @@ static void play_custom(CInstance *s, int which, double pitch) {
     int alive = 0;
     for (int k = 0; k < S_COUNT; k++) if (voice_playing(s, g_jeff_voice[k])) alive++;
     if (alive >= 3) return;
-    g_jeff_voice[which] = play_v(s, g_jeff_snd[which], pitch);
+    double v = play_v(s, g_jeff_snd[which], pitch);
+    g_jeff_voice[which] = v > 0 ? v : 0;
 }
 
 static void blend(CInstance *s, int mode) {

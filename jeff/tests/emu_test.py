@@ -762,7 +762,7 @@ for _ in range(200):
     if sc_ctrl.get('is_attacking') == 0: break
 check([s_ for s_ in shown if s_ in COMBO_A] == COMBO_A, f'steps shown: {shown}')
 hits = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
-check(len(hits) >= 10, f'hitboxes: {len(hits)} (1 + 2 + 2 + 3 + 2)')
+check(len(hits) >= 9, f'hitboxes: {len(hits)} (1 + 2 + 2 + 3 + 1: the cleave hits once, on the slam)')
 behind = [c for c in hits if c[2] < scy.get('x') - 10]
 check(len(behind) >= 1, 'Orbit Reap also hits behind him')
 d = drawn_names()
@@ -775,6 +775,23 @@ ok, bad = prim_ok()
 check(strips >= 40 and prim['verts'] >= 400 and ok, f'3D blade trails + rings: {strips} strips, {prim["verts"]} vertices, balanced {bad}')
 check(sc_ctrl.get('is_attacking') == 0 and scy.get('combo_next') == -1, 'finisher ends the combo, is_attacking cleared')
 check(not any(c[0] == 'BAD_SPRITE_DRAW' for c in calls), 'no invalid sprite draws')
+
+print('[13b] Event Horizon Cleave: one knockdown on the slam, nothing fires as the tear closes')
+scy.set('x', 400); scy.set('image_xscale', 1); scy.set('y', 300); scy.set('vspeed', 0); foe.set('x', 470)
+for _ in range(30): tick(press_next=False)
+calls.clear(); scy.set('combo_next', 5); scy.set('hspeed', 0)
+call('gml_Object_o_scyther_Alarm_3', scy.ptr, scy.ptr)
+events = []
+for t in range(1, 60):
+    n0 = len(calls)
+    tick(press_next=False)
+    for c in calls[n0:]:
+        if c[0] == 'instance_create' and c[1] == 224: events.append((t, 'hit'))
+        if c[0] == 'play': events.append((t, 'sound'))
+    if sc_ctrl.get('is_attacking') == 0: break
+hit_t = [t for t, k in events if k == 'hit']
+check(len(hit_t) == 1 and 18 <= hit_t[0] <= 24, f'one hit, on the slam (frames {hit_t})')
+check(not [t for t, k in events if t > 30], f'nothing fires after the slam settles (events {[e for e in events if e[0] > 30]})')
 
 print('[14] Scyther combo B: Crescent Throw -> Spur Vault -> Phase Step -> Dimensional Stitch -> Singular Rend')
 scy.set('x', 400); scy.set('image_xscale', 1); foe.set('x', 470)
