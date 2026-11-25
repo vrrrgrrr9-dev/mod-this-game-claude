@@ -3,8 +3,9 @@
  *
  *  1. InitLLVM (YYC startup): the Coco mod already appends its 36 event functions (table grows
  *     0xe41 -> 0xe65). We run after it and append Jeff's event functions at 0xe65.. and Scyther's
- *     at 0xe6d.., which is what the o_jeff / o_scyther objects we add to game.droid point at.
- *  2. scr_menu_get_char(id): 1005 = Jeff, 1006 = Scyther (name, title, object, face, shop fields).
+ *     at 0xe6d.. and Grey's at 0xe76.., which is what the o_jeff / o_scyther / o_grey objects we add
+ *     to game.droid point at.
+ *  2. scr_menu_get_char(id): 1005 = Jeff, 1006 = Scyther, 1007 = Grey (name, title, object, face...).
  *  3. character-select list: after the mod rebuilds global.charord we make sure both are in it and
  *     owned. Offline modes only: in online/LAN character select (global.game_gm == 2) they are left
  *     out and a leftover pick is cleared, because the other player's game doesn't have them.
@@ -16,6 +17,8 @@
 #define OBJ_JEFF 685
 #define SCY_CHAR_ID 1006
 #define OBJ_SCYTHER 686
+#define GREY_CHAR_ID 1007
+#define OBJ_GREY 687
 #define SPR_SHOP_BACK_HERO 766
 #define MOD_FUNC_COUNT 0xe65        /* table size after the Coco mod's own hook */
 
@@ -53,6 +56,18 @@ extern int g_scy_spr[];
 #define SCY_FACE_INDEX scyther_face_index()
 int scyther_face_index(void);
 
+/* Grey's events (grey.c) */
+void gml_Object_o_grey_Create_0(CInstance *, CInstance *);
+void gml_Object_o_grey_Step_0(CInstance *, CInstance *);
+void gml_Object_o_grey_Draw_0(CInstance *, CInstance *);
+void gml_Object_o_grey_Draw_64(CInstance *, CInstance *);
+void gml_Object_o_grey_Destroy_0(CInstance *, CInstance *);
+void gml_Object_o_grey_Alarm_0(CInstance *, CInstance *);
+void gml_Object_o_grey_Alarm_2(CInstance *, CInstance *);
+void gml_Object_o_grey_Alarm_3(CInstance *, CInstance *);
+void grey_load_assets(CInstance *s);
+int grey_face_sprite(void);
+
 static YYCodeFunc g_funcs[MOD_FUNC_COUNT + 32];
 int g_jeff_func_base = -1;     /* 0xe65 when everything went as planned (for debugging) */
 
@@ -88,6 +103,14 @@ void jeff_initllvm(char *vars) {
     add(&n, "gml_Object_o_scyther_Alarm_0", (void *)gml_Object_o_scyther_Alarm_0);   /* 0xe73 */
     add(&n, "gml_Object_o_scyther_Alarm_2", (void *)gml_Object_o_scyther_Alarm_2);   /* 0xe74 */
     add(&n, "gml_Object_o_scyther_Alarm_3", (void *)gml_Object_o_scyther_Alarm_3);   /* 0xe75 */
+    add(&n, "gml_Object_o_grey_Create_0", (void *)gml_Object_o_grey_Create_0);       /* 0xe76 */
+    add(&n, "gml_Object_o_grey_Step_0", (void *)gml_Object_o_grey_Step_0);           /* 0xe77 */
+    add(&n, "gml_Object_o_grey_Draw_0", (void *)gml_Object_o_grey_Draw_0);           /* 0xe78 */
+    add(&n, "gml_Object_o_grey_Draw_64", (void *)gml_Object_o_grey_Draw_64);         /* 0xe79 */
+    add(&n, "gml_Object_o_grey_Destroy_0", (void *)gml_Object_o_grey_Destroy_0);     /* 0xe7a */
+    add(&n, "gml_Object_o_grey_Alarm_0", (void *)gml_Object_o_grey_Alarm_0);         /* 0xe7b */
+    add(&n, "gml_Object_o_grey_Alarm_2", (void *)gml_Object_o_grey_Alarm_2);         /* 0xe7c */
+    add(&n, "gml_Object_o_grey_Alarm_3", (void *)gml_Object_o_grey_Alarm_3);         /* 0xe7d */
     *(YYCodeFunc **)(vars + 0x28) = g_funcs;
     *(int *)(vars + 0x14) = n;
 }
@@ -130,6 +153,12 @@ RValue *jeff_get_char(CInstance *s, CInstance *o, RValue *ret, int argc, RValue 
     if (s && id == SCY_CHAR_ID) {
         scyther_load_assets(s);
         put_char(s, "Black Holing Scyther", "Reaper of Realities", OBJ_SCYTHER, g_scy_spr[SCY_FACE_INDEX], 2250, 48, 13, 86, 94);
+        if (ret) { rv_free(ret); *ret = rv_undef(); }
+        return ret;
+    }
+    if (s && id == GREY_CHAR_ID) {
+        grey_load_assets(s);
+        put_char(s, "Grey", "The Glitch", OBJ_GREY, grey_face_sprite(), 2200, 47, 14, 90, 99);
         if (ret) { rv_free(ret); *ret = rv_undef(); }
         return ret;
     }
@@ -185,7 +214,7 @@ static void clear_mod_picks(void) {
     if (!pc || (pc->kind & KIND_MASK) != VALUE_ARRAY) return;
     for (int i = 1; i <= ONLINE_SLOTS; i++) {
         int obj = (int)gget_i(&g_VAR_game_plrchar, i);
-        if (obj == OBJ_JEFF || obj == OBJ_SCYTHER) gset_i(&g_VAR_game_plrchar, i, -1);
+        if (obj == OBJ_JEFF || obj == OBJ_SCYTHER || obj == OBJ_GREY) gset_i(&g_VAR_game_plrchar, i, -1);
     }
 }
 
@@ -194,6 +223,7 @@ void jeff_charsel_ext(CInstance *s) {
     mod_charsel_ext(s);
     if (!g_pGlobal) return;
     if (online_mode()) { clear_mod_picks(); return; }
-    charsel_add(SCY_CHAR_ID);                /* each insert goes to the front: Jeff, Scyther, ... */
+    charsel_add(GREY_CHAR_ID);               /* each insert goes to the front: Jeff, Scyther, Grey, ... */
+    charsel_add(SCY_CHAR_ID);
     charsel_add(JEFF_CHAR_ID);
 }

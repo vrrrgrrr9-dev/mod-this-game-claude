@@ -1,4 +1,4 @@
-"""Build the WOTU Coco mod + Jeff + Black Holing Scyther APK in one go.
+"""Build the WOTU Coco mod + Jeff + Black Holing Scyther + Grey APK in one go.
 
 usage:
   python build.py --apk WOTU_COCO69.apk --out <dir>
@@ -54,11 +54,12 @@ def build_native(work, libyoyo, assets, droid):
     open(os.path.join(gen, 'jeff_assets.h'), 'w').write(manifest.header(assets))
     run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'manifest.py'), assets,
          os.path.join(gen, 'scyther_assets.h')])
+    run([sys.executable, '-I', os.path.join(ROOT, 'art', 'grey', 'grey_manifest.py'), assets, gen])
     run([sys.executable, '-I', os.path.join(HERE, 'gen_engine.py'), libyoyo,
          os.path.join(gen, 'engine.ld'), os.path.join(gen, 'engine_vars.h')])
     run([sys.executable, '-I', os.path.join(HERE, 'gen_stage.py'), droid, os.path.join(gen, 'stage_decor.h')])
     objs = []
-    for c in ('jeff.c', 'scyther.c', 'hooks.c', 'libc.c'):
+    for c in ('jeff.c', 'scyther.c', 'grey.c', 'hooks.c', 'libc.c'):
         o = os.path.join(gen, c[:-2] + '.o')
         run(['clang'] + CFLAGS + ['-I', gen, '-I', SRC, '-c', os.path.join(SRC, c), '-o', o])
         objs.append(o)
@@ -115,6 +116,7 @@ def main():
         shutil.rmtree(assets, ignore_errors=True)
         run([sys.executable, '-I', os.path.join(ROOT, 'art', 'build_art.py'), assets])
         run([sys.executable, '-I', os.path.join(ROOT, 'art', 'scyther', 'build_art.py'), assets])
+        run([sys.executable, '-I', os.path.join(ROOT, 'art', 'grey', 'build_art.py'), assets])
 
     elf = build_native(work, lib_in, assets, droid_in)
     lib_out = os.path.join(work, 'libyoyo.so')

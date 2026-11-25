@@ -1,14 +1,14 @@
-"""Add the o_jeff (685) and o_scyther (686) objects (parent o_parent_character) to game.droid.
+"""Add the o_jeff (685), o_scyther (686) and o_grey (687) objects (parent o_parent_character) to game.droid.
 
 usage: droidpatch.py <game.droid in> <game.droid out>
 
 GameMaker data files are full of absolute file offsets, so nothing is inserted in the middle:
-* the OBJT pointer list grows by two entries into the dead bytes the Coco mod left after it (the
+* the OBJT pointer list grows by three entries into the dead bytes the Coco mod left after it (the
   old copy of object 0 that the mod relocated; both slots verified unreferenced before writing);
 * the new object structs, names and event lists are appended at the end of the file (inside the
   last chunk, AUDO, exactly where the mod put its own objects); FORM/AUDO sizes grow.
 
-Event CodeIds index the YYC function table: 0xe65.. are Jeff's and 0xe6d.. Scyther's functions
+Event CodeIds index the YYC function table: 0xe65.. are Jeff's, 0xe6d.. Scyther's, 0xe76.. Grey's functions
 appended by src/hooks.c (jeff_initllvm); the rest are reused original functions.
 
 Also carries the "shaderfix" (from the user's WOTU_Scyther_shaderfix.apk): the game's screen
@@ -34,6 +34,11 @@ OBJECTS = [
         2: [(0, 0xe73), (2, 0xe74), (3, 0xe75), (4, ALARM4)],
         3: [(0, 0xe6e)], 4: [(OBJ_PARENT_SOLID, SOLID)],
         8: [(0, 0xe6f), (64, 0xe70), (72, 0xe71)]}),
+    ('o_grey', {
+        0: [(0, 0xe76)], 1: [(0, 0xe7a)],
+        2: [(0, 0xe7b), (2, 0xe7c), (3, 0xe7d), (4, ALARM4)],
+        3: [(0, 0xe77)], 4: [(OBJ_PARENT_SOLID, SOLID)],
+        8: [(0, 0xe78), (64, 0xe79)]}),
 ]
 
 

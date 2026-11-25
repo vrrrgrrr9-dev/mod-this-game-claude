@@ -120,7 +120,7 @@ class Inst:
 
 insts = {}; by_ptr = {}
 next_id = [100001]
-CHARACTER_OBJS = {685, 686, 523, 420}
+CHARACTER_OBJS = {685, 686, 687, 523, 420}
 def new_inst(obj):
     i = Inst(obj, next_id[0]); next_id[0] += 1
     insts[i.id] = i; by_ptr[i.ptr] = i
@@ -355,7 +355,7 @@ print('[1] function table registration')
 vars_ = alloc(0x40); uc.mem_write(vars_ + 0x14, struct.pack('<i', 0xe41))
 call('jeff_initllvm', vars_)
 n, = struct.unpack('<i', rd(vars_ + 0x14, 4)); tbl = u64(vars_ + 0x28)
-check(n == 0xe76, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther)')
+check(n == 0xe7e, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther + 8 Grey)')
 check(tbl == BASE + J['g_funcs'] if 'g_funcs' in J else tbl != state['func_table'], 'table pointer moved to Jeff table')
 exp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3']
 for k, e in enumerate(exp):
@@ -365,6 +365,10 @@ sexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Draw_72', 'Destroy_0', 'Alar
 for k, e in enumerate(sexp):
     nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe6d + k), 24))
     check(cstr(nm) == 'gml_Object_o_scyther_' + e and fn == BASE + J['gml_Object_o_scyther_' + e], f'entry {0xe6d + k:#x} = {cstr(nm)}')
+gexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3']
+for k, e in enumerate(gexp):
+    nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe76 + k), 24))
+    check(cstr(nm) == 'gml_Object_o_grey_' + e and fn == BASE + J['gml_Object_o_grey_' + e], f'entry {0xe76 + k:#x} = {cstr(nm)}')
 nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * 0xe64, 24))
 check(nm == 0x1000 + 0xe64 and fn == 0x2000 + 0xe64, 'mod entries copied')
 
@@ -389,18 +393,18 @@ glob.set('chars_num', 3)
 glob.slots['char'] = alloc(16); uc.mem_write(glob.slots['char'], struct.pack('<QII', 0x5678, 0, ARRAY))
 for i, v in enumerate([12, 5, 9], 1): glob.arr[('charord', i)] = v
 call('jeff_charsel_ext', menu.ptr)
-check([glob.arr.get(('charord', i)) for i in range(1, 6)] == [1005, 1006, 12, 5, 9], f"charord = {[glob.arr.get(('charord', i)) for i in range(1, 6)]}")
-check(glob.get('chars_num') == 5, 'chars_num 3 -> 5')
-check(glob.arr.get(('char', 1005)) == 1 and glob.arr.get(('char', 1006)) == 1, 'global.char[1005] = global.char[1006] = 1 (owned)')
+check([glob.arr.get(('charord', i)) for i in range(1, 7)] == [1005, 1006, 1007, 12, 5, 9], f"charord = {[glob.arr.get(('charord', i)) for i in range(1, 7)]}")
+check(glob.get('chars_num') == 6, 'chars_num 3 -> 6')
+check(all(glob.arr.get(('char', c)) == 1 for c in (1005, 1006, 1007)), 'global.char[1005..1007] = 1 (owned)')
 call('jeff_charsel_ext', menu.ptr)
-check(glob.get('chars_num') == 5, 'second rebuild does not add them twice')
+check(glob.get('chars_num') == 6, 'second rebuild does not add them twice')
 
-print('[3b] online character select (global.game_gm == 2): Jeff and Scyther stay out')
+print('[3b] online character select (global.game_gm == 2): Jeff, Scyther and Grey stay out')
 glob.set('game_gm', 2.0)
 glob.slots['game_plrchar'] = alloc(16); uc.mem_write(glob.slots['game_plrchar'], struct.pack('<QII', 0x9abc, 0, ARRAY))
 glob.arr[('game_plrchar', 1)] = 685; glob.arr[('game_plrchar', 2)] = 523
 for i, v in enumerate([12, 5, 9], 1): glob.arr[('charord', i)] = v
-glob.arr.pop(('charord', 4), None); glob.arr.pop(('charord', 5), None); glob.set('chars_num', 3)
+glob.arr.pop(('charord', 4), None); glob.arr.pop(('charord', 5), None); glob.arr.pop(('charord', 6), None); glob.set('chars_num', 3)
 call('jeff_charsel_ext', menu.ptr)
 check([glob.arr.get(('charord', i)) for i in range(1, 5)] == [12, 5, 9, None] and glob.get('chars_num') == 3,
       f"online list unchanged: {[glob.arr.get(('charord', i)) for i in range(1, 5)]}")
@@ -410,11 +414,14 @@ check(not any(k[0] == 'game_plrchar' and k[1] > 2 for k in glob.arr), 'only slot
 glob.arr[('game_plrchar', 2)] = 686
 call('jeff_charsel_ext', menu.ptr)
 check(glob.arr.get(('game_plrchar', 2)) == -1, 'leftover Scyther pick cleared too')
+glob.arr[('game_plrchar', 2)] = 687
+call('jeff_charsel_ext', menu.ptr)
+check(glob.arr.get(('game_plrchar', 2)) == -1, 'leftover Grey pick cleared too')
 glob.arr[('game_plrchar', 2)] = 523
 glob.set('game_gm', 1.0)
 call('jeff_charsel_ext', menu.ptr)
-check(glob.arr.get(('charord', 1)) == 1005 and glob.arr.get(('charord', 2)) == 1006 and glob.get('chars_num') == 5,
-      'back offline (game_gm 1): both listed again')
+check([glob.arr.get(('charord', i)) for i in (1, 2, 3)] == [1005, 1006, 1007] and glob.get('chars_num') == 6,
+      'back offline (game_gm 1): all three listed again')
 
 print('[4] create + alarm0')
 ctrl = new_inst(431); ctrl.set('plr_team', 1); ctrl.set('plr_dmg', 46); ctrl.set('plr_energy', 100); ctrl.set('plr_maxenergy', 100)
@@ -927,6 +934,171 @@ sc_ctrl.set('plr_controller', 0); sc_ctrl.set('keyp_special', 0)
 
 print('[21] Scyther destroy')
 calls.clear(); call('gml_Object_o_scyther_Destroy_0', scy.ptr, scy.ptr)
+check(('parent_destroy',) in calls, 'parent destroy called')
+
+# ============================== Grey ==========================================================
+print('[22] Grey: scr_menu_get_char(1007)')
+calls.clear(); rv_write(argrv, 1007.0)
+nspr = len(sprites)
+call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
+check(menu.get('char_name') == 'Grey' and menu.get('char_obj') == 687, 'name / object 687')
+check(sprites.get(menu.get('char_face'), ('',))[0] == 'grey_face.png', 'portrait card = grey_face.png')
+ngr = len(sprites) - nspr
+check(ngr == 33 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
+check(any(c[0] == 'object_set_sprite' and c[1] == 687 for c in calls), 'object_set_sprite(o_grey, preview)')
+
+print('[23] Grey: create + alarm0')
+for other in (foe, enemy):
+    other.set('x', -3000)                                    # earlier opponents out of the way
+gr_ctrl = new_inst(431); gr_ctrl.set('plr_team', 1); gr_ctrl.set('plr_dmg', 47); gr_ctrl.set('plr_energy', 100); gr_ctrl.set('plr_maxenergy', 100)
+for k in ('key_defend', 'keyp_special', 'is_hurt', 'is_fallen', 'is_dead', 'is_onair', 'is_charging', 'is_running', 'plr_controller'): gr_ctrl.set(k, 0)
+grey = new_inst(687); grey.set('x', 400); grey.set('y', 300); grey.set('image_xscale', 1); grey.set('image_alpha', 1)
+calls.clear()
+call('gml_Object_o_grey_Create_0', grey.ptr, grey.ptr)
+check(('parent_create',) in calls, 'event_inherited (parent create) called')
+check(grey.get('stats_hp') == 2200 and grey.get('char_name') == 'Grey', 'stats/name set')
+check(sprites.get(grey.get('spr_stand'), ('',))[0] == 'grey_m_stand.png' and sprites.get(grey.get('spr_run'), ('',))[0] == 'grey_m_run.png',
+      'framework sprites are the invisible state markers')
+grey.set('parent', gr_ctrl.id)
+call('gml_Object_o_grey_Alarm_0', grey.ptr, grey.ptr)
+check(sprites.get(gr_ctrl.get('spr_face'), ('',))[0] == 'grey_face.png', 'controller spr_face = grey_face')
+g_ectrl = new_inst(431); g_ectrl.set('plr_team', 2); g_ectrl.set('plr_hp', 1900); g_ectrl.set('is_dead', 0)
+gfoe = new_inst(523); gfoe.set('x', 460); gfoe.set('y', 300); gfoe.set('parent', g_ectrl.id)
+
+def gtick(press_next=True, draw=True, gui=False, physics=True):
+    a2 = grey.arr.get(('alarm', 2), -1)
+    if a2 is not None and a2 > 0:
+        a2 -= 1; grey.arr[('alarm', 2)] = a2
+        if a2 == 0:
+            grey.arr[('alarm', 2)] = -1
+            if press_next: grey.set('combo_nextcombo', 1)
+            call('gml_Object_o_grey_Alarm_2', grey.ptr, grey.ptr)
+    call('gml_Object_o_grey_Step_0', grey.ptr, grey.ptr)
+    if physics:
+        x = grey.get('x') + (grey.get('hspeed') or 0); y = grey.get('y') + (grey.get('vspeed') or 0); vs = grey.get('vspeed') or 0
+        if y < 300: vs += 0.45; gr_ctrl.set('is_onair', 1)
+        else: y = 300; vs = 0; gr_ctrl.set('is_onair', 0)
+        grey.set('x', x); grey.set('y', y); grey.set('vspeed', vs)
+    if draw: call('gml_Object_o_grey_Draw_0', grey.ptr, grey.ptr)
+    if gui: call('gml_Object_o_grey_Draw_64', grey.ptr, grey.ptr)
+
+def grun(start, frames=400, press=True, setup=None):
+    seen, hits, xs = set(), [], []
+    calls.clear(); grey.set('combo_next', start); grey.set('hspeed', 0)
+    if setup: setup()
+    call('gml_Object_o_grey_Alarm_3', grey.ptr, grey.ptr)
+    for _ in range(frames):
+        n0 = len(calls)
+        gtick(press_next=press)
+        new = calls[n0:]
+        seen |= {sprites[c[1]][0] for c in new if c[0] == 'draw' and c[1] in sprites}
+        hits += [c for c in new if c[0] == 'instance_create' and c[1] == 224]
+        if any(c[0] == 'BAD_SPRITE_DRAW' for c in new): seen.add('BAD_SPRITE_DRAW')
+        xs.append((grey.get('x'), grey.get('image_xscale')))
+        if gr_ctrl.get('is_attacking') == 0: break
+        calls.clear()
+    for _ in range(12): gtick(press_next=False)          # clones / projectiles finish
+    return seen, hits, xs
+
+print('[24] Grey combo A: jab-cross, clone cut, frost rise, fireball flip, fatal glitch')
+grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 455)
+seen, hits, xs = grun(1)
+check(len(hits) >= 14, f'hitboxes: {len(hits)}')
+check({'grey_shape.png', 'grey_sword.png', 'grey_spear.png', 'grey_spike.png', 'grey_fire.png', 'grey_spawn.png',
+       'grey_shatter.png', 'grey_arc.png'} <= seen, f'stickman, glitch sword, spear, ice spikes, fireballs, clones, shatter, swing drawn (missing {sorted({"grey_shape.png", "grey_sword.png", "grey_spear.png", "grey_spike.png", "grey_fire.png", "grey_spawn.png", "grey_shatter.png", "grey_arc.png"} - seen)})')
+check(any(x > 455 and xsc < 0 for x, xsc in xs), 'Fatal Glitch: teleported behind him and turned round')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+check(gr_ctrl.get('is_attacking') == 0 and grey.get('combo_next') == -1, 'the finisher ends the combo')
+
+print('[25] Grey combo B: roundhouse, twin clone kick, ice lance shatter, meteor axe')
+grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 455)
+seen, hits, xs = grun(50)
+check(len(hits) >= 8, f'hitboxes: {len(hits)} (the ice shards only hit what they touch)')
+check({'grey_spike.png', 'grey_shard.png', 'grey_fireburst.png', 'grey_ring.png', 'grey_spawn.png'} <= seen,
+      f'ice lance, shards, fire burst, shock ring, clone drawn (missing {sorted({"grey_spike.png", "grey_shard.png", "grey_fireburst.png", "grey_ring.png", "grey_spawn.png"} - seen)})')
+check('BAD_SPRITE_DRAW' not in seen, 'no invalid sprite draws')
+
+print('[26] Grey crouch, air and run attacks')
+for start, label, setup in ((10, 'Glitch Sweep Blade', None), (60, 'Frost Slide', None),
+                            (11, 'Aerial Glitch Spin', lambda: (grey.set('y', 230), grey.set('vspeed', -3), gr_ctrl.set('is_onair', 1))),
+                            (61, 'Phantom Dive', lambda: (grey.set('y', 230), grey.set('vspeed', -3), gr_ctrl.set('is_onair', 1))),
+                            (1, 'Glitch Dash (running)', lambda: gr_ctrl.set('is_running', 1))):
+    grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 450)
+    seen, hits, xs = grun(start, press=False, setup=setup)
+    gr_ctrl.set('is_running', 0)
+    check(len(hits) >= 1 and 'BAD_SPRITE_DRAW' not in seen, f'{label}: {len(hits)} hits')
+    for _ in range(30): gtick(press_next=False)
+
+print('[27] Grey skills: Clone Legion, Element Overload')
+grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 470)
+seen, hits, xs = grun(100, press=False)
+for _ in range(60): gtick(press_next=False); seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}; hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; calls.clear()
+check(len(hits) >= 5, f'Clone Legion: {len(hits)} hits')
+check({'grey_spike.png', 'grey_fire.png', 'grey_spear.png', 'grey_bolt.png', 'grey_error.png'} <= seen,
+      f'ice, fire, sky spear, lightning clones and the ERROR flash (missing {sorted({"grey_spike.png", "grey_fire.png", "grey_spear.png", "grey_bolt.png", "grey_error.png"} - seen)})')
+grey.set('x', 380); gfoe.set('x', 470)
+seen, hits, xs = grun(110, press=False)
+for _ in range(40): gtick(press_next=False); seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}; hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; calls.clear()
+check(len(hits) >= 12, f'Element Overload: {len(hits)} hits')
+check({'grey_spike.png', 'grey_pillar.png', 'grey_spear.png'} <= seen, 'ice prison, fire pillar, spear rain drawn')
+check(all(abs(c[2] - 470) < 60 for c in hits), 'all of it lands on the opponent')
+
+print('[28] Grey special: SYSTEM CRASH')
+grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 470); g_ectrl.set('plr_hp', 1900)
+for _ in range(20): gtick(press_next=False)
+calls.clear()
+gr_ctrl.set('key_defend', 1); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
+gtick(gui=True)
+gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
+check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar spent, untouchable')
+check(grey.get('depth') == -15000, 'drawn over the HUD')
+seen, hits, spawns = set(), [], 0
+for t in range(200):
+    calls.clear(); gtick(gui=True)
+    seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}
+    hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
+    if t < 150: check_x = gfoe.get('x')
+check(len(hits) >= 9, f'eight clone strikes and the blade: {len(hits)} hits')
+check({'grey_spawn.png', 'grey_fatal.png', 'grey_shatter.png', 'grey_bolt.png', 'grey_fireburst.png', 'grey_spike.png'} <= seen,
+      f'clones, elements, FATAL ERROR drawn (missing {sorted({"grey_spawn.png", "grey_fatal.png", "grey_shatter.png", "grey_bolt.png", "grey_fireburst.png", "grey_spike.png"} - seen)})')
+check(abs(check_x - 470) < 1, 'the opponent is held in place until the blade')
+check(gr_ctrl.get('can_gethurt') == 1 and grey.get('depth') != -15000, 'vulnerable again, depth restored')
+calls.clear(); gtick()
+check(any(c[0] == 'scr_plr_step' for c in calls), 'framework step resumes afterwards')
+
+print('[29] Grey as the CPU: SYSTEM CRASH with a full bar')
+gr_ctrl.set('plr_controller', 2); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
+grey.set('x', 400); gfoe.set('x', 470)
+calls.clear(); gtick()
+gr_ctrl.set('keyp_special', 0)
+check(gr_ctrl.get('plr_energy') == 0, 'CPU fired it without holding shield')
+for _ in range(200): gtick(); calls.clear()
+check(gr_ctrl.get('can_gethurt') == 1, 'and finished it')
+gr_ctrl.set('plr_controller', 0)
+
+print('[30] Grey moves about: idle, walk, run, jump (front flip), guard, hurt, knocked down')
+states = []
+def draws_now():
+    return sum(1 for c in calls if c[0] == 'draw' and c[1] in sprites and sprites[c[1]][0] == 'grey_shape.png')
+for label, setup in (('idle', lambda: None), ('walk', lambda: (grey.set('hspeed', 3.0), grey.set('sprite_index', grey.get('spr_walk')))),
+                     ('run', lambda: (grey.set('hspeed', 8.0), gr_ctrl.set('is_running', 1))),
+                     ('jump', lambda: (grey.set('y', 299), grey.set('vspeed', -7), gr_ctrl.set('is_onair', 1))),
+                     ('guard', lambda: gr_ctrl.set('key_defend', 1)), ('hurt', lambda: gr_ctrl.set('is_hurt', 1)),
+                     ('fallen', lambda: gr_ctrl.set('is_fallen', 1))):
+    setup()
+    calls.clear(); gtick(physics=label == 'jump')
+    n = draws_now()
+    states.append((label, n))
+    for _ in range(8): calls.clear(); gtick(physics=label == 'jump')
+    for k in ('is_running', 'key_defend', 'is_hurt', 'is_fallen'): gr_ctrl.set(k, 0)
+    grey.set('hspeed', 0); grey.set('sprite_index', grey.get('spr_stand')); grey.set('y', 300); grey.set('vspeed', 0); gr_ctrl.set('is_onair', 0)
+check(all(n >= 40 for _, n in states), f'the stickman is drawn bone by bone in every state: {states}')
+calls.clear(); gr_ctrl.set('key_defend', 1); gtick(); gtick()
+check('grey_hex.png' in {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}, 'guard shows the glitch barrier')
+gr_ctrl.set('key_defend', 0)
+
+print('[31] Grey destroy')
+calls.clear(); call('gml_Object_o_grey_Destroy_0', grey.ptr, grey.ptr)
 check(('parent_destroy',) in calls, 'parent destroy called')
 
 print('\nRESULT:', 'ALL PASSED' if not fails else f'{len(fails)} FAILED')

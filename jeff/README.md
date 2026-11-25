@@ -1,4 +1,4 @@
-# Jeff + Black Holing Scyther — new fighters for the WOTU Coco mod
+# Jeff, Black Holing Scyther and Grey — new fighters for the WOTU Coco mod
 
 Jeff is drawn from the original artwork (`art/jeff_reference.jpg`): the drawing is cut into its
 parts (head + ears + snout, eyes, body, bandana, tail, arms, feet) and re-posed for every frame as
@@ -123,8 +123,8 @@ python tests/emu_test.py out/libyoyo.so out/gen/jeff.elf out/gen/engine.ld
   unchanged, the original Coco APK can also be installed back over it the same way.
 * Built and checked statically + in emulation only; it has not been run on a phone yet. Try the
   update on one phone with a test account before sending it out.
-* Jeff is offline only, and so is Scyther. Neither appears in online/LAN character select: other
-  players' games don't have them, and the instant-KO finishers aren't fair against real players.
+* Jeff, Scyther and Grey are offline only. None of them appears in online/LAN character select:
+  other players' games don't have them, and the instant-KO finishers aren't fair against real players.
   Online play itself is not changed. The Coco build also carries the cheat menu, so this mod does
   not open online play to modded clients.
 
@@ -165,6 +165,37 @@ parallaxes as the camera pans). If a device never runs Draw Begin, the normal Dr
 
 In the cutscene's last act the rooster is drawn live from his 2x sprites, so he stays sharp on any
 screen size. Offline only, same as Jeff.
+
+## Grey (char id 1007, object 687)
+
+A dark grey stickman: glitch, clones and every element. He is not drawn from sprite frames. Each
+frame, `src/grey.c` draws his lines from a skeleton: every bone is a white square stretched and
+rotated, with round caps, an outline pass and a darker far side. Every attack is an eased
+keyframe timeline with timed events, authored in `art/grey/moves.py` and exported to
+`gen/grey_moves.h`. That makes all his motion smooth at 60 fps, and going from any pose to any
+other (attacks, walking, landing, getting hit) cross-fades. Walking and running are procedural,
+paced by how far he actually moves, so his feet don't slide. He front-flips at the top of a jump.
+Fast moves leave cyan / magenta afterimages, and he glitches (an RGB split plus jitter) on
+teleports, clones and now and then while idle.
+
+| Input | Move |
+|---|---|
+| Attack A | Glitch Jab-Cross -> **Clone Cut** (a glitch sword appears mid-swing while a clone slashes from behind the opponent) -> **Frost Rise** (ice spikes in a row, rising uppercut) -> **Fireball Flip** (a backflip, two fireballs thrown upside down) -> **Fatal Glitch** (teleports behind, three clones and Grey run him through with glitch spears at once, shatter, knockdown) |
+| Attack B | Roundhouse -> **Twin Clone Kick** (low sweep while a clone flies over with a kick) -> **Ice Lance Shatter** (a lance erupts under the opponent, a spinning heel shatters it into shards) -> **Meteor Axe** (jump, front flip, burning heel, knockdown) |
+| Down + attack A / B | Glitch Sweep Blade (trips) / Frost Slide |
+| Air attack A / B | Aerial Glitch Spin / Phantom Dive (dive kick with a clone echo) |
+| Run + attack | Glitch Dash: through the opponent, three echoes slash behind him |
+| Skill | **Clone Legion**: four clones burst out: ice spikes, two fireballs, a spear from the sky, a lightning dash kick |
+| Down + skill | **Element Overload**: ice prison, fire pillar, glitch spear rain |
+| Shield + skill (full bar) | **SYSTEM CRASH**: the screen glitches (scanlines, torn colour bands), the opponent is held while eight clones dash through him from both sides and the air, each bringing an element. Then Grey blinks above him and brings down a giant glitch blade: one huge unblockable hit, "FATAL ERROR". Not an instant K.O. |
+
+The framework's `sprite_index` values for Grey are tiny invisible marker strips, one per state
+(stand, walk, run, jump, fall, crouch, defend, charge, hurt, knocked down), so the game's own logic
+sees normal sprites. Grey reads them to pick his pose. Effects are pixel art from
+`art/grey/fx.py` (fire reuses Jeff's flame renderer with the sun palette). His four sounds
+(glitch, clone, ice, crash) follow the same rules as the other fighters' streams, with at most 2
+alive. Offline only, like Jeff and Scyther. Stats: HP 2200, damage 47, walk 3.6, run 8.4, skill
+costs 55 / 50.
 
 ## Crash in Event Horizon Cleave
 
