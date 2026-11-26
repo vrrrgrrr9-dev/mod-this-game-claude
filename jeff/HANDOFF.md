@@ -84,6 +84,18 @@ The user asked for infinite mana ONLINE because a friend has "infinite everythin
 cheats of any kind. Asked a third time with v10 ("Restore cheats online"): declined again, offline cheats unchanged. Our builds already turn cheats off online/LAN for both players, so the friend must be on
 an old/different build: tell them to install the latest APK. Local/offline cheats are unchanged.
 
+## Custom characters with the bow (v13/v14)
+Characters made in the game's Character Creation holding the bow (img_wp == 62) fire INFERNO ARROW with
+shield + skill on a full bar (cust_step / cust_draw / cust_draw_gui in grey.c; droidpatch repoints
+o_plr_custom's Step/Draw, adds Draw GUI). OFFLINE ONLY (v14): online the game's own move runs.
+Why: online is rollback netcode (nonline_save_state / nonline_set_state / nonline_rollback in o_control_online);
+each phone simulates from inputs (scr_send_char_data also sends x, y, xscale, hspeed, vspeed) and checksums
+(plr_hp, p2_checksum_tick) are compared -> a phone without the mod plays the normal special, mismatches, and
+the match drops ("connection lost") for both. To enable online it needs, untested here (needs two phones):
+(1) a both-have-the-mod handshake in the match-start data that unmodded phones ignore, and (2) the arrow's
+timeline keyed to the netcode's shared tick (o_control_online.tick) instead of our own counter, so rollback /
+re-simulation replays it identically on both phones.
+
 ## STATUS of the 4 requests in the user's last message
 
 ### 1. CRASH FIX — DONE in source, NOT yet built/tested/shipped  ← do this first

@@ -3090,7 +3090,15 @@ static Grey *cust_new(CInstance *s) {
     for (int i = 0; i < 2; i++) if (g_cust[i].inst == s || !g_cust[i].inst || !g_cust[i].sp_on) { grey_reset(&g_cust[i], s); return &g_cust[i]; }
     return 0;
 }
+/* online / LAN (global.game_gm == 2): each phone simulates the fight from the button presses and the netcode
+   compares checksums, so a phone without this mod would play the normal special, disagree, and drop the match
+   for both players. Until both phones can tell each other they have the mod, online keeps the game's own move. */
+static bool cust_online(void) {
+    RValue *gm = g_pGlobal ? var_slot_r(g_pGlobal, g_VAR_game_gm.id) : 0;
+    return gm && (int)rv_num(gm) == 2;
+}
 static bool cust_try_arrow(CInstance *s) {
+    if (cust_online()) return false;
     if (!parent_ok(s) || !cust_has_bow(s)) return false;
     bool human = pget(s, &g_VAR_keyp_special) > 0.5 && pget(s, &g_VAR_key_defend) > 0.5;
     bool cpu = is_cpu(s) && pget(s, &g_VAR_keyp_special) > 0.5;
