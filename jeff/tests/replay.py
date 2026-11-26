@@ -551,15 +551,57 @@ elif SCEN.startswith('moonfall'):          # Grey's MOONFALL: the ground, the cl
                 call('gml_Object_o_grey_Alarm_2', gr.ptr, gr.ptr)
         call('gml_Object_o_grey_Step_0', gr.ptr, gr.ptr)
     for _ in range(44): mtick()
+    if SCEN.startswith('moonfall_axe'):                  # skill 1: the Glitch Axe
+        names = []
+        gr.set('combo_next', 100); call('gml_Object_o_grey_Alarm_3', gr.ptr, gr.ptr)
+        for f in range(1, 70):
+            mtick()
+            if f % 2 == 0: frames.append(mframe()); names.append(f)
+        print('axe frames', names)
+        for i, im in enumerate(frames): im.save(os.path.join(OUT, f'f{i:03d}.png'))
+        print('frames', len(frames)); sys.exit(0)
+    if SCEN.startswith('moonfall_arrow'):                # double-tap shield -> the bow stance, then INFERNO ARROW
+        for k in (1, 0, 1, 0): gc.set('key_defend', k); mtick(); mtick()
+        for _ in range(30): mtick()
+        frames.append(mframe())
+        SCEN = 'moonfall' + SCEN[14:]
     gc.set('key_defend', 1); gc.set('keyp_special', 1); mtick()
     gc.set('key_defend', 0); gc.set('keyp_special', 0)
     every = int(SCEN[8:] or 8)
     names = []
-    for f in range(1, 520):
+    for f in range(1, 560):
         mtick()
         if f % every == 0 or f in (30, 44, 50, 70, 96, 104, 120, 244, 250, 262, 280):
             frames.append(mframe()); names.append(f)
     print('special frames', names)
+elif SCEN == 'custom':                    # a creator-made character with the bow: INFERNO ARROW
+    import pickle
+    info = pickle.load(open(ASSETS + '/_info.pkl', 'rb')) if os.path.exists(ASSETS + '/_info.pkl') else {}
+    for nm_, (sid, W_, H_, ox_, oy_, n_) in info.items(): sprites[sid] = (nm_ + '.png', n_, ox_, oy_)
+    cc = new_inst(431)
+    for k, v in (('plr_team', 1), ('plr_dmg', 40), ('plr_energy', 100), ('plr_maxenergy', 100)): cc.set(k, v)
+    for k in ('key_defend', 'keyp_special', 'is_hurt', 'is_fallen', 'is_dead', 'is_onair', 'plr_controller'): cc.set(k, 0)
+    cu = new_inst(491); cu.set('x', 300); cu.set('y', 300); cu.set('image_xscale', 1); cu.set('parent', cc.id); cu.set('depth', 0)
+    look = dict(back=3, head=2, feet=4, bottom=5, top=6, design=0, overtop=0, belt=2, arms=3, arms2=0, overall=0, face=5, mask=0, hair=12, hat=0)
+    cols = dict(back=0x2030a0, head=0x9fc5ff, feet=0x303030, bottom=0x404070, top=0x3050d0, belt=0x20a0e0, arms=0x9fc5ff, face=0xffffff, hair=0x2040a0)
+    for k, v in look.items(): cu.set('img_' + k, v); cu.set('col_' + k, cols.get(k, 0xffffff))
+    cu.set('col_body', 0x9fc5ff); cu.set('col_pup', 0x202020); cu.set('img_wp', 62); cu.set('spr_charge', 1059)
+    scy.set('x', -500); foe.set('x', 430)
+    def cframe():
+        global canvas, VX, VY, Z
+        canvas = np.zeros((int(VH * Z), int(VW * Z), 3), np.float32); canvas[...] = BG
+        state['blend'] = 0
+        call('cust_draw', cu.ptr, cu.ptr)
+        sv = (VX, VY, Z); VX, VY, Z = 0.0, 0.0, 1
+        state['blend'] = 0
+        call('cust_draw_gui', cu.ptr, cu.ptr)
+        VX, VY, Z = sv
+        return Image.fromarray((np.clip(canvas, 0, 1) * 255).astype(np.uint8))
+    cc.set('key_defend', 1); cc.set('keyp_special', 1); call('cust_step', cu.ptr, cu.ptr)
+    cc.set('key_defend', 0); cc.set('keyp_special', 0)
+    for f in range(1, 140):
+        call('cust_step', cu.ptr, cu.ptr)
+        if f in (12, 40, 80, 118, 126): frames.append(cframe())
 elif SCEN == 'void':
     ctrl.set('key_defend', 1); ctrl.set('keyp_special', 1); ctrl.set('plr_energy', 100)
     tick(); ctrl.set('key_defend', 0)

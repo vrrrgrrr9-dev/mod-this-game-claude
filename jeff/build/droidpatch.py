@@ -42,6 +42,12 @@ OBJECTS = [
 ]
 
 
+# existing objects whose events we take over (the original functions are called from ours) or extend:
+# o_plr_custom = the game's custom characters (Character Creation): INFERNO ARROW when holding the bow
+PATCH = [('o_plr_custom', {(3, 0): (0xe7f, 'gml_Object_o_plr_custom_Step_0'),
+                           (8, 0): (0xe80, 'gml_Object_o_plr_custom_Draw_0')},
+          {8: [(64, 0xe81)]})]
+
 SHADER_FIX = (b'min( 0.25, dot( B,B ) ', b'clamp(dot(B,B),.01,.25')
 
 
@@ -115,6 +121,40 @@ def main():
         blob.extend(phys)
         put('<I', 15); [put('<I', type_lists[t]) for t in range(15)]
         objs.append(obj)
+
+    # take over / extend events of existing objects
+    for name, repl, adds in PATCH:
+        q = u32(d, objt + 4 + 4 * names.index(name))
+        nverts = u32(d, q + 80)                     # physics shape vertex count (then 8 bytes each)
+        ev = q + 84 + 8 * nverts
+        assert u32(d, ev) == 15, f'{name}: unexpected object layout'
+        for (etype, sub), (code, orig) in repl.items():
+            lst = u32(d, ev + 4 + 4 * etype)
+            hits = 0
+            for k in range(u32(d, lst)):
+                e = u32(d, lst + 4 + 4 * k)
+                if u32(d, e) != sub: continue
+                assert u32(d, e + 4) == 1, f'{name} {etype}/{sub}: expected one action'
+                act = u32(d, e + 8)
+                print(f'{name} event {etype}/{sub}: code {u32(d, act + 32):#x} ({orig}) -> {code:#x}')
+                struct.pack_into('<I', d, act + 32, code)
+                hits += 1
+            assert hits == 1, f'{name} {etype}/{sub}: event not found'
+        for etype, evs in adds.items():
+            lst = u32(d, ev + 4 + 4 * etype)
+            old_ptrs = [u32(d, lst + 4 + 4 * k) for k in range(u32(d, lst))]
+            assert all(u32(d, e) not in [sub for sub, _ in evs] for e in old_ptrs), f'{name}: event already there'
+            new_ptrs = []
+            for sub, code in evs:
+                act = here()
+                put('<14i', 1, 603, 7, 0, 0, 0, 2, 0, code, 0, -1, 0, 0, 0)
+                e = here()
+                put('<III', sub, 1, act)
+                new_ptrs.append(e)
+            nl = here()
+            put('<I', len(old_ptrs) + len(new_ptrs)); [put('<I', x) for x in old_ptrs + new_ptrs]
+            struct.pack_into('<I', d, ev + 4 + 4 * etype, nl)
+            print(f'{name} event type {etype}: added', [(sub, hex(c)) for sub, c in evs])
 
     # the distortion shader's divide by zero (see the module docstring)
     strg, strg_sz = ch['STRG']

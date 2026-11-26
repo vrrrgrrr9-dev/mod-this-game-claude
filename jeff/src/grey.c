@@ -153,10 +153,12 @@ typedef struct {
     /* MOONFALL */
     int sp_on, sp_t, tgt_id, depth_saved, hit_done; float tgt_x, tgt_y; double old_depth;
     int sp_kind;                                /* SPK_MOON / SPK_ARROW */
+    int cust;                                   /* a creator-made character with the bow, not Grey */
     int bow, prev_def, def_t1, bow_cool;        /* the bow stance (double-tap shield) */
 } Grey;
 
 static Grey g_grey[4];
+static Grey g_cust[2];                          /* INFERNO ARROW for the game's custom characters (see below) */
 static void impact(Grey *j, float x, float y, int col, float power);
 static Part *part(Grey *j, int kind, float x, float y, float vx, float vy, int life, float size, int col);
 static void burst(Grey *j, int kind, float x, float y, int n, float spd, int life, float size, int col);
@@ -490,6 +492,7 @@ static void grey_reset(Grey *j, CInstance *s) {
 }
 static Grey *slot(CInstance *s, bool create) {
     for (int i = 0; i < 4; i++) if (g_grey[i].inst == s) return &g_grey[i];
+    for (int i = 0; i < 2; i++) if (g_cust[i].inst == s) return &g_cust[i];
     if (!create) return 0;
     for (int i = 0; i < 4; i++) if (!g_grey[i].inst) { grey_reset(&g_grey[i], s); return &g_grey[i]; }
     grey_reset(&g_grey[3], s);
@@ -2067,6 +2070,7 @@ static void ia_step(CInstance *s, Grey *j, GPose *pose) {
     ia_pose(t, pose);
     if (t < IA_CUT) {                                         /* fire spiralling into his bow hand */
         V2 J[12]; fk(pose, x, y, f, J);
+        if (j->cust) { J[7].x = x + f * 8; J[7].y = y - 26; }
         float c = lin01(t, 0, IA_CUT);
         for (int k = 0; k < 2; k++) {
             float a = frand(0, 6.2832f), r = 26 + frand(0, 18) * (1 - c);
@@ -2125,6 +2129,7 @@ static void ia_draw_world(CInstance *s, Grey *j) {
     if (t < IA_CUT) {
         GPose p; V2 J[12];
         ia_pose(t, &p); fk(&p, x, y, f, J);
+        if (j->cust) { J[7].x = x + f * 8; J[7].y = y - 26; }
         float c = lin01(t, 0, IA_CUT);
         spr(s, GR_FIRE, (float)((t / 2) % 8), J[7].x + f * 4, J[7].y, f * (0.3f + 0.5f * c), 0.3f + 0.5f * c, 0, C_WHITE, 0.4f + 0.6f * c);
         blend(s, 1);
@@ -2163,6 +2168,40 @@ static void ia_big(CInstance *s, const V2 *J, float k, int mode, int col, float 
 }
 
 /* the close-up: the bow drawn, then released and the camera whipping after the arrow */
+/* A character from the game's own creator, drawn huge for the close-up: the same layers, in the same order and
+   colours, as the creator's preview (scr_customchar_draw_stand), standing pose. Its own little bow is left out:
+   the bow of fire is in its hand instead. Lit from the fire (an orange rim on the bow side). */
+#define CUST_SPR_BODY 1343
+static void cust_layer(CInstance *s, int spr_id, YYVAR *img_v, YYVAR *col_v, float ox, float oy, float k, float dir) {
+    double img = img_v ? sget(s, img_v) : 0, col = sget(s, col_v);
+    if (!(img >= 0) || img > 400) return;
+    int cc = (col >= 0 && col <= 0xFFFFFF) ? (int)col : C_WHITE;
+    YYGML_draw_sprite_ext(s, spr_id, (float)img, ox, oy, dir * k, k, 0, cc, 1);
+}
+static void cust_draw_big(CInstance *s, float ox, float oy, float k, float dir, float fire) {
+    if (!finite_(ox) || !finite_(oy) || !finite_(k)) return;
+    /* (calls, not a table of pointers: the blob has no absolute relocations) */
+    cust_layer(s, 1327, &g_VAR_img_back, &g_VAR_col_back, ox, oy, k, dir);
+    cust_layer(s, CUST_SPR_BODY, 0, &g_VAR_col_body, ox, oy, k, dir);
+    cust_layer(s, 1336, &g_VAR_img_head, &g_VAR_col_head, ox, oy, k, dir);
+    cust_layer(s, 1333, &g_VAR_img_feet, &g_VAR_col_feet, ox, oy, k, dir);
+    cust_layer(s, 1329, &g_VAR_img_bottom, &g_VAR_col_bottom, ox, oy, k, dir);
+    cust_layer(s, 1341, &g_VAR_img_top, &g_VAR_col_top, ox, oy, k, dir);
+    cust_layer(s, 1331, &g_VAR_img_design, &g_VAR_col_design, ox, oy, k, dir);
+    cust_layer(s, 1339, &g_VAR_img_overtop, &g_VAR_col_overtop, ox, oy, k, dir);
+    cust_layer(s, 1328, &g_VAR_img_belt, &g_VAR_col_belt, ox, oy, k, dir);
+    cust_layer(s, 1326, &g_VAR_img_arms, &g_VAR_col_arms, ox, oy, k, dir);
+    cust_layer(s, 1326, &g_VAR_img_arms2, &g_VAR_col_arms2, ox, oy, k, dir);
+    cust_layer(s, 1338, &g_VAR_img_overall, &g_VAR_col_overall, ox, oy, k, dir);
+    cust_layer(s, 1332, &g_VAR_img_face, &g_VAR_col_face, ox, oy, k, dir);
+    cust_layer(s, 1340, &g_VAR_img_face, &g_VAR_col_pup, ox, oy, k, dir);
+    cust_layer(s, 1337, &g_VAR_img_mask, &g_VAR_col_mask, ox, oy, k, dir);
+    cust_layer(s, 1334, &g_VAR_img_hair, &g_VAR_col_hair, ox, oy, k, dir);
+    cust_layer(s, 1335, &g_VAR_img_hat, &g_VAR_col_hat, ox, oy, k, dir);
+    blend(s, 1);                                               /* the firelight on the bow side */
+    spr(s, GR_GLOW, 0, ox + dir * 10 * k, oy - 28 * k, 26 * k / 32.0f, 34 * k / 32.0f, 0, RGB(255, 110, 30), 0.35f * fire);
+    blend(s, 0);
+}
 static void ia_draw_closeup(CInstance *s, Grey *j, float gw, float gh) {
     int t = j->sp_t;
     float dir = j->dir;
@@ -2178,6 +2217,11 @@ static void ia_draw_closeup(CInstance *s, Grey *j, float gw, float gh) {
     GPose p; V2 J[12];
     ia_pose(t, &p); fk(&p, 0, 0, dir, J);
     for (int i = 0; i < 12; i++) { J[i].x = ox + J[i].x * k; J[i].y = oy + J[i].y * k; if (!finite_(J[i].x) || !finite_(J[i].y)) return; }
+    float kc = gh / 62.0f * push;                              /* a custom character: 64 px sprite, head clear of the bars */
+    if (j->cust) {                                             /* the grip in front of the chest, the draw hand behind */
+        J[7].x = ox + dir * 9 * kc; J[7].y = oy - 27 * kc;
+        J[5].x = ox - dir * 5 * kc; J[5].y = oy - 27 * kc;
+    }
     /* the bow of fire: grows out from the grip */
     float grow = ease_io(lin01(t, IA_CUT, IA_CUT + 22)), fb = gh * 0.58f / 210.0f;
     float bx = J[7].x, by = J[7].y;
@@ -2194,14 +2238,15 @@ static void ia_draw_closeup(CInstance *s, Grey *j, float gw, float gh) {
     /* additive: the bow's light on everything behind, and his neon glow */
     blend(s, 1);
     spr(s, GR_GLOW, 0, bx, by, gh * 0.75f / 32.0f, gh * 0.95f / 32.0f, 0, RGB(255, 120, 40), 0.45f * grow);
-    ia_big(s, J, k, 0, C_CYAN, 0.16f, 5);
-    if (t % 23 < 2) {                                          /* now and then he glitches, even here: an RGB split */
+    if (!j->cust) ia_big(s, J, k, 0, C_CYAN, 0.16f, 5);
+    if (!j->cust && t % 23 < 2) {                                          /* now and then he glitches, even here: an RGB split */
         V2 Jc[12], Jm[12];                                     /* (behind him, so only the fringes show) */
         for (int i = 0; i < 12; i++) { Jc[i] = J[i]; Jc[i].x -= gh * 0.01f; Jm[i] = J[i]; Jm[i].x += gh * 0.01f; }
         ia_big(s, Jc, k, 0, C_CYAN, 0.8f, 2); ia_big(s, Jm, k, 0, C_MAG, 0.8f, 2);
     }
     blend(s, 0);
-    ia_big(s, J, k, 1, 0, 1, 0);
+    if (j->cust) cust_draw_big(s, ox, oy, kc, dir, grow);
+    else ia_big(s, J, k, 1, 0, 1, 0);
     spr(s, GR_FIREBOW, (float)((t / 3) % 6), bx, by, dir * fb, fb * grow, 0, C_WHITE, clampf(grow * 1.6f, 0, 1));
     float sw = gh * 0.0045f;                                   /* the string: white-hot */
     seg(s, tA.x, tA.y, nk.x, nk.y, sw, RGB(255, 236, 200), grow);
@@ -3019,4 +3064,99 @@ void gml_Object_o_grey_Draw_64(CInstance *s, CInstance *o) {
     rect(0, gh - bar, gw, gh, 0, in);
     YYGML_draw_set_colour(C_WHITE);
     YYGML_draw_set_alpha(1);
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* INFERNO ARROW for the game's own custom characters                                          */
+/*   Any fighter made in the game's Character Creation that holds the bow (weapon 62, the last  */
+/*   one in the creator's list) fires INFERNO ARROW with shield + skill on a full bar, instead  */
+/*   of its usual special. build/droidpatch.py points o_plr_custom's Step and Draw events at the */
+/*   functions below, which run the game's original events except while the cinematic holds    */
+/*   the fighter, and gives it a Draw GUI event (Grey's, which draws the cinematic).            */
+/* ------------------------------------------------------------------------------------------ */
+#define CUST_BOW 62
+void gml_Object_o_plr_custom_Step_0(CInstance *, CInstance *);
+void gml_Object_o_plr_custom_Draw_0(CInstance *, CInstance *);
+
+static Grey *cust_find(CInstance *s) {
+    for (int i = 0; i < 2; i++) if (g_cust[i].inst == s) return &g_cust[i];
+    return 0;
+}
+static bool cust_has_bow(CInstance *s) {
+    double w = sget(s, &g_VAR_img_wp);
+    return w > CUST_BOW - 0.5 && w < CUST_BOW + 0.5;
+}
+static Grey *cust_new(CInstance *s) {
+    for (int i = 0; i < 2; i++) if (g_cust[i].inst == s || !g_cust[i].inst || !g_cust[i].sp_on) { grey_reset(&g_cust[i], s); return &g_cust[i]; }
+    return 0;
+}
+static bool cust_try_arrow(CInstance *s) {
+    if (!parent_ok(s) || !cust_has_bow(s)) return false;
+    bool human = pget(s, &g_VAR_keyp_special) > 0.5 && pget(s, &g_VAR_key_defend) > 0.5;
+    bool cpu = is_cpu(s) && pget(s, &g_VAR_keyp_special) > 0.5;
+    if (!(human || cpu) || !special_ready(s)) return false;
+    double e = pget(s, &g_VAR_plr_energy), emax = pget(s, &g_VAR_plr_maxenergy);
+    double need = emax > 0 ? (emax < 100 ? emax : 100) : 100;
+    if (e + 0.001 < need) return false;                      /* not a full bar: the game's own controls */
+    int tid = -1;
+    CInstance *t = nearest_enemy(s, &tid, 2000, 800);
+    if (!t) return false;
+    grey_load_assets(s);                                     /* (once per run) */
+    Grey *j = cust_new(s);
+    if (!j) return false;
+    j->cust = 1;
+    pset_b(s, &g_VAR_keyp_special, false);
+    pset(s, &g_VAR_plr_energy, e - need);
+    j->sp_on = 1; j->sp_kind = SPK_ARROW; j->sp_t = 0; j->hit_done = 0; j->move = MOVE_NONE;
+    j->tgt_id = tid; j->tgt_x = (float)sget(t, &g_VAR_x); j->tgt_y = (float)sget(t, &g_VAR_y);
+    j->dir = j->tgt_x >= sx_(s) ? 1.0f : -1.0f;
+    bset(s, &g_VAR_image_xscale, j->dir);
+    pset_b(s, &g_VAR_is_attacking, true);
+    pset_b(s, &g_VAR_can_gethurt, false);
+    j->old_depth = sget(s, &g_VAR_depth); j->depth_saved = 1;
+    bset(s, &g_VAR_depth, -15000);                          /* its GUI draws over the HUD */
+    bset(s, &g_VAR_hspeed, 0); bset(s, &g_VAR_vspeed, 0);
+    double ch = iget(s, &g_VAR_spr_charge);
+    if (ch > 0) bset(s, &g_VAR_sprite_index, ch);           /* the charging pose while the fire gathers */
+    return true;
+}
+static void cust_fx_step(Grey *j) { fx_step(j); parts_step(j); bolts_step(j); marks_step(j); }
+
+void cust_step(CInstance *s, CInstance *o) {
+    Grey *j = cust_find(s);
+    if (j && j->sp_on) {
+        g_grey_tick++; j->aura_t++;
+        if (j->glitch_t > 0) j->glitch_t--;
+        if (!parent_ok(s)) special_end(s, j);
+        else { GPose pose; ia_step(s, j, &pose); }
+        cust_fx_step(j);
+        if (j->sp_on) return;                                 /* the cinematic holds the fighter */
+    } else if (j) cust_fx_step(j);                           /* (its embers and smoke settle) */
+    if (cust_try_arrow(s)) return;
+    gml_Object_o_plr_custom_Step_0(s, o);
+}
+void cust_draw(CInstance *s, CInstance *o) {
+    gml_Object_o_plr_custom_Draw_0(s, o);
+    Grey *j = cust_find(s);
+    if (!j) return;
+    g_blend_cur = -1;
+    marks_draw(s, j);
+    if (j->sp_on) ia_draw_world(s, j);
+    blend(s, 1);
+    bolts_draw(s, j);
+    parts_draw(s, j, 1);
+    blend(s, 0);
+    parts_draw(s, j, 0);
+    for (int add = 0; add < 2; add++)
+        for (int i = 0; i < N_FX; i++) {
+            Fx *e = &j->fx[i];
+            if (!e->on || (e->add != 0) != add) continue;
+            blend(s, add);
+            spr(s, e->a, (float)(e->t / e->tpf), e->x, e->y, e->xs, e->ys, e->rot, e->col, 1);
+        }
+    blend(s, 0);
+}
+void cust_draw_gui(CInstance *s, CInstance *o) {
+    Grey *j = cust_find(s);
+    if (j && (j->sp_on || j->scr_t > 0)) gml_Object_o_grey_Draw_64(s, o);
 }

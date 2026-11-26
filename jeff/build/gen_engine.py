@@ -63,6 +63,8 @@ FUNCS = {  # C name -> mangled engine symbol
     'gml_Script_scr_char_charge_effect': '_Z33gml_Script_scr_char_charge_effectP9CInstanceS0_R8YYRValueiPPS1_',
     'gml_Object_o_parent_character_Create_0': '_Z38gml_Object_o_parent_character_Create_0P9CInstanceS0_',
     'gml_Object_o_parent_character_Destroy_0': '_Z39gml_Object_o_parent_character_Destroy_0P9CInstanceS0_',
+    'gml_Object_o_plr_custom_Step_0': '_Z30gml_Object_o_plr_custom_Step_0P9CInstanceS0_',
+    'gml_Object_o_plr_custom_Draw_0': '_Z30gml_Object_o_plr_custom_Draw_0P9CInstanceS0_',
 }
 DATA = ['g_pGlobal', 'g_undefinedRV']
 VARS = '''parent plr_child plr_hp plr_maxhp plr_energy plr_maxenergy plr_dmg plr_team plr_controller
@@ -83,7 +85,10 @@ char_obj char_face char_shop_back char_unlocked char_bought char_stats_hp char_s
 char_stats_speed char_stats_pwr char_stats_combat char_shop_price char_shop_level
 char_shop_needchar char_shop_cond char_shop_chall char_price camera_shake cd_immunity
 game_gm game_plrchar image_angle room_width
-bbox_left bbox_right bbox_top bbox_bottom is_running'''.split()
+bbox_left bbox_right bbox_top bbox_bottom is_running
+img_wp img_back col_back col_body img_head col_head img_feet col_feet img_bottom col_bottom img_top col_top
+img_design col_design img_overtop col_overtop img_belt col_belt img_arms col_arms img_arms2 col_arms2
+img_overall col_overall img_face col_face col_pup img_mask col_mask img_hair col_hair img_hat col_hat'''.split()
 FUNCIDS = ['display_get_gui_width', 'display_get_gui_height', 'instance_exists', 'array_length_1d']
 
 def main():

@@ -307,6 +307,7 @@ STUB = {
     'gml_Script_scr_char_charge_effect': st_script('scr_char_charge_effect'),
     'gml_Object_o_parent_character_Create_0': st_event('parent_create'),
     'gml_Object_o_parent_character_Destroy_0': st_event('parent_destroy'),
+    'gml_Object_o_plr_custom_Step_0': st_event('custom_step'), 'gml_Object_o_plr_custom_Draw_0': st_event('custom_draw'),
     'mod_initllvm_hook': st_mod_init, 'mod_get_char_hook': st_mod_get_char, 'mod_charsel_ext': st_event('mod_charsel_ext'),
     'F_ViewGetCamera': st_cam(3.0), 'F_CameraGetViewX': st_cam(100.0), 'F_CameraGetViewY': st_cam(50.0),
     'F_CameraGetViewWidth': st_cam(600.0), 'F_CameraGetViewHeight': st_cam(300.0),
@@ -359,7 +360,7 @@ print('[1] function table registration')
 vars_ = alloc(0x40); uc.mem_write(vars_ + 0x14, struct.pack('<i', 0xe41))
 call('jeff_initllvm', vars_)
 n, = struct.unpack('<i', rd(vars_ + 0x14, 4)); tbl = u64(vars_ + 0x28)
-check(n == 0xe7f, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther + 9 Grey)')
+check(n == 0xe82, f'count 0xe65 -> {n:#x} (8 Jeff + 9 Scyther + 9 Grey + 3 custom-character bow)')
 check(tbl == BASE + J['g_funcs'] if 'g_funcs' in J else tbl != state['func_table'], 'table pointer moved to Jeff table')
 exp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alarm_2', 'Alarm_3']
 for k, e in enumerate(exp):
@@ -373,6 +374,9 @@ gexp = ['Create_0', 'Step_0', 'Draw_0', 'Draw_64', 'Destroy_0', 'Alarm_0', 'Alar
 for k, e in enumerate(gexp):
     nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe76 + k), 24))
     check(cstr(nm) == 'gml_Object_o_grey_' + e and fn == BASE + J['gml_Object_o_grey_' + e], f'entry {0xe76 + k:#x} = {cstr(nm)}')
+for k, e in enumerate(('cust_step', 'cust_draw', 'cust_draw_gui')):
+    nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * (0xe7f + k), 24))
+    check(fn == BASE + J[e] and cstr(nm).startswith('gml_Object_o_plr_custom_'), f'entry {0xe7f + k:#x} = {cstr(nm)}')
 nm, fn, gs = struct.unpack('<QQQ', rd(tbl + 24 * 0xe64, 24))
 check(nm == 0x1000 + 0xe64 and fn == 0x2000 + 0xe64, 'mod entries copied')
 
@@ -1279,6 +1283,43 @@ for t in range(1, 521):
     calls.clear(); gtick(gui=True); seen |= drawn_now()
 check('grey_earth.png' in seen and 'grey_firebow.png' not in seen, 'out of the stance: MOONFALL again')
 calls.clear()
+
+print('[28d] custom characters (the game\'s creator) holding the bow: shield + skill = INFERNO ARROW')
+cu_ctrl = new_inst(431)
+for k, v in (('plr_team', 1), ('plr_dmg', 40), ('plr_energy', 100), ('plr_maxenergy', 100)): cu_ctrl.set(k, v)
+for k in ('key_defend', 'keyp_special', 'is_hurt', 'is_fallen', 'is_dead', 'is_onair', 'plr_controller'): cu_ctrl.set(k, 0)
+cust = new_inst(491); cust.set('x', 380); cust.set('y', 300); cust.set('image_xscale', 1); cust.set('parent', cu_ctrl.id)
+cust.set('depth', 0); cust.set('spr_charge', 1059)
+for k in ('back', 'head', 'feet', 'bottom', 'top', 'design', 'overtop', 'belt', 'arms', 'arms2', 'overall', 'face', 'mask', 'hair', 'hat'):
+    cust.set('img_' + k, 1); cust.set('col_' + k, 0x80c0ff)
+cust.set('col_body', 0xa0d0ff); cust.set('col_pup', 0); cust.set('img_wp', 5)
+for sid in range(1326, 1344): sprites.setdefault(sid, ('s_plr_custom_stand_layer.png', 1, 32, 64))   # the game's own layer sprites
+gfoe.set('x', 470); g_ectrl.set('plr_hp', 1900)
+def ctick(gui=True):
+    call('cust_step', cust.ptr, cust.ptr); call('cust_draw', cust.ptr, cust.ptr)
+    if gui: call('cust_draw_gui', cust.ptr, cust.ptr)
+calls.clear(); ctick()
+check(any(c[0] == 'custom_step' for c in calls) and any(c[0] == 'custom_draw' for c in calls), 'the game\'s own step and draw still run')
+cu_ctrl.set('key_defend', 1); cu_ctrl.set('keyp_special', 1); calls.clear(); ctick()
+check(cu_ctrl.get('plr_energy') == 100 and any(c[0] == 'custom_step' for c in calls), 'another weapon: shield + skill left to the game')
+cust.set('img_wp', 62); calls.clear(); ctick()
+cu_ctrl.set('key_defend', 0); cu_ctrl.set('keyp_special', 0)
+check(cu_ctrl.get('plr_energy') == 0 and not any(c[0] == 'custom_step' for c in calls), 'the bow: bar spent, the arrow starts instead of the game\'s special')
+seen, hits, bad, held, own, layers = set(), [], False, True, 0, set()
+for t in range(1, 381):
+    calls.clear(); ctick()
+    seen |= {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites}
+    layers |= {c[1] for c in calls if c[0] == 'draw' and 1326 <= c[1] <= 1343}
+    hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
+    bad |= any(c[0] in GBAD for c in calls)
+    own += sum(1 for c in calls if c[0] == 'custom_step')
+    if t < 300 and abs(gfoe.get('x') - 470) > 1: held = False
+check(len(hits) == 1, f'one unblockable blow: {len(hits)} hits')
+check({'grey_ia_sky.png', 'grey_firebow.png', 'grey_ia_cloud.png'} <= seen, f'the cinematic drawn ({sorted(s_ for s_ in seen if "ia_" in s_ or "fire" in s_)})')
+check(len(layers) >= 14, f'the close-up draws the character itself, layer by layer ({len(layers)} layer sprites)')
+check(not bad, 'no invalid draws')
+check(held, 'the opponent held until the blow')
+check(own >= 1 and cu_ctrl.get('can_gethurt') == 1 and cust.get('depth') == 0, f'the game\'s step back afterwards, depth restored ({own} steps after)')
 
 print('[29] Grey as the CPU: MOONFALL with a full bar')
 gr_ctrl.set('plr_controller', 2); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)

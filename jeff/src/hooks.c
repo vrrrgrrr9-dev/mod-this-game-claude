@@ -66,6 +66,9 @@ void gml_Object_o_grey_Destroy_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Alarm_0(CInstance *, CInstance *);
 void gml_Object_o_grey_Alarm_2(CInstance *, CInstance *);
 void gml_Object_o_grey_Alarm_3(CInstance *, CInstance *);
+void cust_step(CInstance *, CInstance *);       /* o_plr_custom (the game's custom characters): the bow */
+void cust_draw(CInstance *, CInstance *);
+void cust_draw_gui(CInstance *, CInstance *);
 void grey_load_assets(CInstance *s);
 int grey_face_sprite(void);
 
@@ -113,6 +116,9 @@ void jeff_initllvm(char *vars) {
     add(&n, "gml_Object_o_grey_Alarm_2", (void *)gml_Object_o_grey_Alarm_2);         /* 0xe7c */
     add(&n, "gml_Object_o_grey_Alarm_3", (void *)gml_Object_o_grey_Alarm_3);         /* 0xe7d */
     add(&n, "gml_Object_o_grey_Draw_72", (void *)gml_Object_o_grey_Draw_72);         /* 0xe7e */
+    add(&n, "gml_Object_o_plr_custom_Step_mod", (void *)cust_step);                   /* 0xe7f */
+    add(&n, "gml_Object_o_plr_custom_Draw_mod", (void *)cust_draw);                   /* 0xe80 */
+    add(&n, "gml_Object_o_plr_custom_Draw_64_mod", (void *)cust_draw_gui);            /* 0xe81 */
     *(YYCodeFunc **)(vars + 0x28) = g_funcs;
     *(int *)(vars + 0x14) = n;
 }
