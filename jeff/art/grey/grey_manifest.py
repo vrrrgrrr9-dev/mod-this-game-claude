@@ -27,6 +27,8 @@ def header():
     o.append('static const char k_grey_sounds[GS_COUNT][24] = {')
     o += [f'    "grey_{n}.ogg",' for n in SOUNDS]
     o.append('};')
+    import moonfall                              # the ragged melt front, for the shock ring
+    o.append(moonfall.front_table_c())
     return '\n'.join(o) + '\n'
 
 

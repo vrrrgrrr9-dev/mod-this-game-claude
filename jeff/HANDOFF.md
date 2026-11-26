@@ -15,39 +15,73 @@ Scratch root: `S=/tmp/claude-0/-home-user-mod-this-game-claude/51a3ce15-244d-502
 - Run python art/move scripts WITHOUT `-I` (they import sibling modules): `$S/venv/bin/python art/grey/moves.py <out.h>`.
 - Deliverables go in `$S/deliver`. Last shipped: `WOTU_COCO69_Jeff_Scyther_Grey_v10.apk`.
 
-## NEXT AI: START HERE (state at hand-off, v10 just built)
-v10 = MOONFALL (Grey's new ultimate) + the lava world. Built and signed:
-`$S/jout2/WOTU_COCO69_Jeff.apk` (sent to the user as `$S/deliver/WOTU_COCO69_Jeff_Scyther_Grey_v10.apk`).
-Not yet done for v10 (do these first, in order):
-1. Finish the emulator suite: `$S/venv/bin/python tests/emu_test.py $S/jout2/libyoyo.so $S/jout2/gen/jeff.elf $S/jout2/gen/engine.ld`
-   ([28] is the new, slow MOONFALL test: 460 frames). If `rebuild.sh` times out, raise its 900 s emu timeout.
-   Result at hand-off: everything passes, incl. [28]/[29] MOONFALL (1 blow at frame 372, Moon/Earth/melt/plume/
-   lava all drawn, no invalid draws, max 674 draws/frame), EXCEPT one perf guideline: "blend-mode switches per
-   frame <= 24" measured 26 in the space shot. Fix: in `mf_draw_space` merge additive passes (draw the orange
-   atmosphere glow and the globe rings in one additive block, and the contact flash glow + plume glow together)
-   so the frame switches blend mode <= 24 times. (The sprite-count FAIL in that run is already fixed: 37 -> 49.)
-2. Fuzz Grey a few seeds (command below), watch for invalid memory / hangs during the special.
-3. Small fix: clear `j->gp[i].on` for all i in `start_special` (grey.c). Leftover debris from a first
-   MOONFALL would otherwise be drawn frozen during a second one in the same match.
-4. Then the sub attack (section 3 below has the exact recipe), then rebuild, test, commit, ship v11.
-The user said NOT to do the sub attack before MOONFALL is finished.
+## NEXT AI: START HERE (v12 BUILT AND SHIPPED: `$S/deliver/WOTU_COCO69_Jeff_Scyther_Grey_v12.apk`)
+v12 was built in the session with the toolchain (out dir `$S/jout3`, assets `$S/assets6` = assets5 + Grey art
+re-rendered by `art/grey/build_art.py`). Same signing certificate, save-recovery fix applied, no warnings.
+Unicorn emu_test.py at wrap-up: 266 checks ok, 0 FAIL through [30b] (all MOONFALL / axe / arrow tests passed;
+the run was cut short at [30b] by the user's wrap-up). Fuzz grey seed 11 clean, seed 12 clean at frame 1000.
+Previews from the real code looked right (axe swing; INFERNO ARROW every phase). Next: finish the last emu
+sections ([30b]..end) once, then the open items below (Grey's position while fighting, polish ideas).
+(previous note:) v12 = v11 + the bow; source done and tested on the host
+v12 adds Grey's **bow stance + INFERNO ARROW** (from a concept video the user sent: an archer draws a giant
+fire bow, releases, the arrow streaks across, a yellow flash, a top-down crater, a white flash with a black
+spike, a mushroom cloud). The user chose: Grey gets it; a double-tap shield toggles a bow stance; in the
+stance shield + skill fires INFERNO ARROW instead of MOONFALL. Original art (not the video's character).
+- Code: grey.c `bow_input` (double tap, TAP_WINDOW 16, cooldown 24, only free + grounded), the bow shown in
+  the hand when src < 100 and no move weapon (GW_BOW = 5, w -90, mirrored like the axe), `start_special`
+  sets `sp_kind` (SPK_ARROW if `bow`), the CPU picks randomly. Section "INFERNO ARROW": `ia_step` (pose from
+  the frame alone via `ia_pose`, sounds, the blow at IA_LAND 318: dmg x9, defend 0, knock, vforce -11),
+  `ia_draw_world` (fire gathering at the hand; the cloud behind the target afterwards), `ia_draw_gui` ->
+  close-up (Grey drawn ~10x by `ia_big` from the real skeleton), flight, flash, top, spike, cloud.
+  Timeline: IA_CUT 26, IA_LOOSE 122, IA_FLY 134, IA_FLASH 178, IA_TOP 186, IA_SPIKE 238, IA_CLOUD 248,
+  IA_LAND 318, IA_DUR 380. Peak 403 draws, 16 blend switches per frame.
+- Art: art/grey/arrow.py (10 sprites, registered into fx.SPRITES after moonfall: GR_ indices shifted, all by
+  name). Poses BOW_AIM / BOW_DRAW / BOW_LOOSE in poses.py.
+- Tests: emu_test.py [22] 60 sprites, new [28c] (single press no bow, double tap bow, the cinematic: one
+  unblockable hit at 316..320, every phase's art drawn, not MOONFALL, 380 frames, toggle back -> MOONFALL).
+  Host: all Grey tests pass, fuzz 6 x 6000 frames clean (fuzz now double-taps shield too).
+- Ideas if the user wants more: a bow-stance moveset (arrow shots on attack), a hit-confirm close-up of the
+  target, a proper cel-shaded rock sprite for the cloud shot (the moon rocks read dark up close).
 
-### Making MOONFALL "as perfect as possible" (optional polish, all in grey.c `mf_*` + art/grey/moonfall.py)
-- (copies of cc.sh / replay.py are in tests/ in case the scratchpad is gone)
-- Preview the real code: `bash $S/tools2/cc.sh <gen dir> <out>` (quick blob + libyoyo.so; gen dir = a copy of
-  `$S/jout2/gen` with the fresh grey_assets.h), then `replay.py <out>/libyoyo.so <out>/jeff.elf <gen>/engine.ld
-  $S/assets5 <frames dir> moonfall8` (every 8th frame; `moonfall40` = sparse). Composite sheets by hand.
-- Ideas, in order of value: (a) make the melt-front overlay ring follow the ragged front (or drop it);
-  (b) the Moon could shed a few big chunks just before contact (Roche fragments, GQ_ROCK bigger sizes);
-  (c) a faint orange "airglow" ring on the limb when the front reaches it; (d) camera: hold 10 more frames on
-  the impact before the pull-back (MF_KEYS); (e) the ascent's streaks could curve with a slight camera tilt.
-- Keep: the physics constants (MF_GM, MF_VR, MF_VT, MF_N, MF_TO) are solved together (Kepler fall from
-  2.75 Earth radii, 200 frames, contact exactly at MF_HIT on MF_N). Re-solve with a script if you change one.
-- Don't use draw_primitive/draw_vertex (the crash cause, see section 1); sprites only.
+### v11 (still not built either)
+v11 = everything the user asked for after v10, in source:
+- MOONFALL fixes: the leftover-debris bug (`start_special` clears `gp[]`), blend switches 26 -> 18 per frame
+  (all additive glows of a layer share one block: see the comments in `mf_draw_space`), and it is now
+  **500 frames at 60 fps** (MF_HOLD 254, MF_AFTER 354, MF_FLASH 400, MF_LAND 412 = the blow, SPC_DUR 500;
+  MF_MOON..MF_HIT untouched, so the Kepler constants are still exact; slow-mo ejecta for MF_SLOWMO 54).
+- MOONFALL polish, all 5 handoff ideas: (a) the shock ring follows the textures' ragged melt front
+  (`moonfall.front_table()` -> `k_mf_front` in grey_assets.h, `mf_front_lag`); (b) Roche fragments: big
+  chunks shed from the Earth-facing side in the last 26 frames, they strike first; (c) orange airglow on the
+  melted limb (`mf_draw_airglow`, soft glows, no seg joints); (d) a 14-frame camera hold on the impact
+  (MF_KEYS); (e) the ascent streaks lean and bend with a slight camera roll.
+- Sub attack 1 = **Glitch Axe** (section 3 recipe): `fx.axe` (64x28, grip (4,14), edge up), weapon id 4
+  (`GW_AXE`, decode `>> 2 & 7` in draw_weapon AND trails_push; mirrored with yscale -1 when facing left so
+  the edge leads), choreography in moves.py `s1` with `grip2()` (2-hand IK; the target is just out of reach
+  so both hands meet at the grip), an extra low-pass key at t11 so the swing goes down-under-up (the short-
+  way-round lerp would otherwise swing it backwards over the top), floor-scrape sparks t10-11, hit t13 vf -11
+  knock, rising sparks over the opponent, glitch-out t44. Clone Legion's CL_* scripts are kept, unused.
+- Tests: emu_test.py [22] 50 sprites, [27] axe (1 hit, vforce <= -10, can_knock, grey_axe drawn),
+  [28] windows for 500 frames + hit at 410..416, new [28b] second MOONFALL (no frozen debris) + 500 frames.
+
+### Why no APK yet, and how to build v11
+The session that made v11 had no Unicorn, no uber-apk-signer.jar, no original Coco APK and no network.
+So it verified with a **host harness** instead (`tests/host/`, see its files' docstrings):
+- `compile_check.sh <jeff> <out>` (env V10 = unzipped v10 APK dir, ASSETS = rendered art): the real ARM
+  build of the blob, minus elfpatch. Compiles clean, no draw_primitive.
+- `build_host.sh` + `grey_test.py`: grey.c compiled for x86-64 with a ctypes shim that forwards every engine
+  call to Python stubs ported 1:1 from emu_test.py, then runs emu_test.py's Grey section ([23]..[31]) on it.
+  On v10 code it reproduced the v10 emulator result exactly (blend 26, blow at 372, 674 draws), so trust it.
+  UBSan in trap mode. `fuzz_grey.py` (6 x 6000 frames clean), `host_replay.py` (moonfall / axe / axeL).
+**TODO for v11:** in an env with the parts + signer: `python build/build.py --parts ... --out <dir>
+--signer uber-apk-signer.jar`, then the FULL emu_test.py under Unicorn (ARM, all characters), then ship as
+`WOTU_COCO69_Jeff_Scyther_Grey_v11.apk`. Expect [28] max draws ~720, blend 18.
+Still open (unchanged): section 2 (Grey's position), the optional texture-memory safety net.
+Possible next polish: the shock ring's seg joints show as beads (same in v10) - soft glows like the airglow
+would fix it; the axe's low pass dips under the floor for ~1 frame (like Glitch Sweep Blade's sword).
 
 ### Cheats (asked again, declined again)
 The user asked for infinite mana ONLINE because a friend has "infinite everything" online. Declined: no online
-cheats of any kind. Our builds already turn cheats off online/LAN for both players, so the friend must be on
+cheats of any kind. Asked a third time with v10 ("Restore cheats online"): declined again, offline cheats unchanged. Our builds already turn cheats off online/LAN for both players, so the friend must be on
 an old/different build: tell them to install the latest APK. Local/offline cheats are unchanged.
 
 ## STATUS of the 4 requests in the user's last message
@@ -73,7 +107,7 @@ Compare to how Jeff/Scyther sit. Grey's sprite_index markers are 1px invisible s
 positions him by those — check `spr_mask_stand`/`spr_mask_crouch` (SPR_MASK_STAND/CROUCH) match his
 drawn height, else he floats or sinks.
 
-### 3. Sub-attack 1 -> an axe swing that launches the enemy into the air — NOT started (do it after MOONFALL)
+### 3. Sub-attack 1 -> an axe swing that launches the enemy into the air — DONE in source (v11), see START HERE
 "Sub attack 1" = skill 1 = combo_next 100 = `GT_S1` (currently Clone Legion: 4 clone events). Recipe:
 1. Art (`art/grey/fx.py`): add `def axe(k, n=4)`: a ~64x28 px two-handed glitch axe, handle along +x from
    the grip (origin ~(4, 14)), a crescent head at the far end: dark steel with a bright cyan edge and a few
@@ -97,10 +131,10 @@ drawn height, else he floats or sinks.
 5. Tests: `tests/emu_test.py` [27] checks Clone Legion's clones: change it to one hit with vf <= -10 and
    knock, and `grey_axe.png` drawn. Rebuild, test, fuzz, replay `grey` to eyeball the swing, ship.
 
-### 4. Ultimate -> MOONFALL (the Moon teleported into the sky, a realistic Earth-Moon collision) - DONE (v10)
+### 4. Ultimate -> MOONFALL (the Moon teleported into the sky, a realistic Earth-Moon collision) - DONE (v10, retimed to 500 frames in v11)
 `special_step` / `mf_*` in grey.c, art in `art/grey/moonfall.py` (registered into fx.SPRITES).
-- Timeline (frames): MF_RIFT 24, MF_MOON 40, MF_ASC 90, MF_SPACE 114, MF_FALL 176, MF_HIT 240, MF_AFTER 324,
-  MF_FLASH 360, MF_LAND 372 (the blow + `lava_activate`), SPC_DUR 440.
+- Timeline (frames, v11): MF_RIFT 24, MF_MOON 40, MF_ASC 90, MF_SPACE 114, MF_FALL 176, MF_HIT 240, MF_HOLD 254,
+  MF_AFTER 354, MF_FLASH 400, MF_LAND 412 (the blow + `lava_activate`), SPC_DUR 500.
 - Physics: Earth radius 1, Moon 0.2725; `mf_moon_c` integrates the Kepler fall BACKWARDS from the contact state
   (MF_N, MF_VR/MF_VT, MF_GM) so contact is exact. Ejecta/debris `GPt gp[]` use the same GM.
 - Camera: `MF_KEYS` (log apparent radius, centre x, top y) through a cubic Hermite; perspective projection with

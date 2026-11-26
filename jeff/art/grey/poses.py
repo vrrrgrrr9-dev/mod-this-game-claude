@@ -39,6 +39,11 @@ CHARGE = G(sp=-90, hd=-92, uf=120, lf=150, ub=60, lb=30, tf=60, sf=105, tb=120, 
 SPEAR_THRUST = G(sp=-66, hd=-76, uf=-4, lf=-4, ub=-10, lb=-4, back_over=1, tf=48, sf=96, tb=124, sb=104, w=0)
 POSE_COOL = G(sp=-88, hd=-78, uf=-8, lf=-14, ub=110, lb=60, tf=76, sf=96, tb=104, sb=92)
 
+# the bow (INFERNO ARROW): front arm straight out at the target holding the grip; back hand on the string
+BOW_AIM = G(sp=-90, hd=-86, uf=-4, lf=-4, ub=40, lb=-50, tf=58, sf=97, tb=124, sb=103)      # nocked, string at rest
+BOW_DRAW = G(sp=-95, hd=-86, uf=-6, lf=-6, ub=180, lb=-16, tf=56, sf=98, tb=126, sb=105)    # full draw: hand at the cheek
+BOW_LOOSE = G(sp=-97, hd=-88, uf=-6, lf=-6, ub=196, lb=176, tf=56, sf=98, tb=126, sb=105)   # released: the hand flies back
+
 WALK1 = G(sp=-82, hd=-86, uf=50, lf=-40, ub=46, lb=-56, tf=62, sf=88, tb=118, sb=106)
 WALK2 = G(sp=-84, hd=-88, uf=58, lf=-36, ub=40, lb=-60, tf=118, sf=106, tb=62, sb=88)
 AIRDASH = dict(pose(sp=-30, hd=-40, uf=170, lf=180, ub=160, lb=190, tf=170, sf=160, tb=190, sb=170), hy=-30)
@@ -46,4 +51,5 @@ AIRDASH = dict(pose(sp=-30, hd=-40, uf=170, lf=180, ub=160, lb=190, tf=170, sf=1
 ALL = dict(WALK1=WALK1, WALK2=WALK2, AIRDASH=AIRDASH, STAND=STAND, STAND2=STAND2, JAB=JAB, CROSS=CROSS, HOOK_WIND=HOOK_WIND, SLASH_WIND=SLASH_WIND,
            SLASH_END=SLASH_END, CROUCH=CROUCH, CROUCH_PALM=CROUCH_PALM, UPPER=UPPER, KICK_CHAMBER=KICK_CHAMBER,
            KICK_OUT=KICK_OUT, SWEEP=SWEEP, RUN1=RUN1, RUN2=RUN2, TUCK=TUCK, FALL=FALL, HURT=HURT, FALLEN=FALLEN,
-           DEFEND=DEFEND, CHARGE=CHARGE, SPEAR_THRUST=SPEAR_THRUST, POSE_COOL=POSE_COOL)
+           DEFEND=DEFEND, CHARGE=CHARGE, SPEAR_THRUST=SPEAR_THRUST, POSE_COOL=POSE_COOL,
+           BOW_AIM=BOW_AIM, BOW_DRAW=BOW_DRAW, BOW_LOOSE=BOW_LOOSE)

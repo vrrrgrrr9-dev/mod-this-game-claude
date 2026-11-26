@@ -176,6 +176,61 @@ def spear(k, n=4):
     return Image.fromarray(a, 'RGBA')
 
 
+def axe(k, n=4, W=64, H=28, gx=4, cy=14):
+    """the glitch axe for sub attack 1 (two-handed), pointing right from the grip at (gx, cy): a dark haft
+    with cyan wraps, and at the far end a crescent bit whose cutting edge faces up (-y: the way the head
+    travels in the rising swing) with a short hammer poll below. Dark steel with a bevel, a bright cyan
+    edge with a white glint, and magenta glitch pixels / torn rows that move every frame."""
+    a = rgba(W, H)
+    rng = random.Random(910 + k)
+    STEEL, STEEL_L, STEEL_D = (44, 46, 56), (86, 92, 108), (24, 25, 32)
+    HAFT, HAFT_L = (40, 40, 46), (66, 66, 76)
+    # haft: 2 px, pommel knob, cyan grip wraps near both hands
+    for x in range(0, 58):
+        put(a, x, cy - 1, HAFT_L); put(a, x, cy, HAFT)
+    for y in range(cy - 2, cy + 2): put(a, 0, y, STEEL_L); put(a, 1, y, STEEL)
+    for x in (3, 6, 9, 12):
+        put(a, x, cy - 1, CYAN); put(a, x, cy, (30, 140, 160))
+    # the bit: outer arc (the cutting edge) of a circle centred below the haft, inner side slanted to the eye
+    ccx, ccy, R = 50.0, 22.0, 19.0
+    for y in range(0, cy):
+        for x in range(38, W):
+            dd = math.hypot(x + 0.5 - ccx, y + 0.5 - ccy)
+            inner = x + 0.5 >= 43 + (cy - 1 - y) * 0.45       # the bit flares out from the eye
+            notch = math.hypot(x + 0.5 - 41.0, y + 0.5 - 1.0) < 7.5   # the crescent's hollow behind the bit
+            if dd <= R and inner and x <= 62 and not notch:
+                edge = R - dd
+                if edge < 1.2: col = CYAN                       # the honed edge
+                elif edge < 2.3: col = (150, 225, 240)
+                elif y < cy - 4 and (x + y) % 7 == 0: col = STEEL_L
+                else: col = STEEL if (x - 44) > (cy - y) * 0.6 else STEEL_L   # bevel: lighter near the eye
+                put(a, x, y, col)
+    # the eye (socket) and the poll below the haft
+    for y in range(cy - 3, cy + 3):
+        for x in range(46, 57): put(a, x, y, STEEL_D if y >= cy else STEEL)
+    for y in range(cy + 1, cy + 7):
+        half = 4 - (y - cy) * 0.45
+        for x in range(int(51 - half), int(52 + half)): put(a, x, y, STEEL_D if x < 51 else STEEL)
+    for x in range(49, 54): put(a, x, cy + 6, (30, 140, 160))  # a cyan rim on the poll's face
+    # a white glint riding the edge (moves along it frame by frame)
+    gxp = 44 + k * 4
+    gy = int(ccy - math.sqrt(max(0, R * R - (gxp - ccx) ** 2)))
+    for dx in range(2):
+        if 0 <= gy + 1 < H and a[gy + 1, gxp + dx, 3]: put(a, gxp + dx, gy + 1, WHITE)
+    # glitch: magenta pixels near the edge, and one or two rows of the head torn sideways
+    for _ in range(7):
+        x = rng.randint(42, 61); y = rng.randint(2, cy - 2)
+        if a[y, x, 3]: put(a, x, y, MAGENTA)
+    for _ in range(rng.randint(1, 2)):
+        y = rng.randint(3, cy + 4); s = rng.choice((-2, -1, 1, 2))
+        row = a[y, 38:W].copy(); a[y, 38:W] = 0
+        lo, hi = max(38, 38 + s), min(W, W + s)
+        a[y, lo:hi] = row[lo - 38 - s:hi - 38 - s]
+        nz = np.nonzero(a[y, 38:W, 3])[0]
+        if len(nz): a[y, 38 + nz[0], :3] = MAGENTA if s > 0 else CYAN
+    return Image.fromarray(a, 'RGBA')
+
+
 def bolt(k, n=6):
     """a lightning bolt, top to bottom (centre origin), white core with violet-cyan glow."""
     W, H = 32, 96
@@ -457,9 +512,12 @@ SPRITES = {   # name: (generator, frames, ox, oy)
     'error': (error_txt, 4, 48, 12), 'fatal': (fatal_txt, 4, 80, 16), 'hex': (hexwall, 4, 20, 58),
     'spawn': (spawn, 8, 16, 80), 'preview': (preview, 4, 48, 74),
     'smoke': (smoke, 8, 12, 12), 'star': (star, 8, 24, 24), 'beam': (beam, 6, 12, 64), 'bits': (bits, 2, 2, 3),
+    'axe': (axe, 4, 4, 14),        # sub attack 1: the two-handed glitch axe (grip at (4, 14))
 }
 import moonfall                     # MOONFALL: the Earth, the Moon, the plume, the lava world (rendered in numpy)
 SPRITES.update(moonfall.SPRITES)
+import arrow                        # INFERNO ARROW: the bow, the fire bow, the flight, the crater, the mushroom cloud
+SPRITES.update(arrow.SPRITES)
 MARKERS = [('stand', 4), ('walk', 6), ('run', 6), ('jump', 2), ('fall', 2), ('crouch', 1), ('defend', 1),
            ('charge', 2), ('hurt', 2), ('hurtup', 1), ('hurtdown', 1), ('fallen', 1), ('attack', 1)]
 

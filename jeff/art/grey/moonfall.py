@@ -312,6 +312,42 @@ def earth_melt(k=0, n=len(MELT)):
     return _compose(F, rgb, gcol, glow)
 
 
+def front_table(n_th=29, step=0.125, n_ph=64):
+    """Where earth_melt's ragged front really runs, for the shock ring grey.c draws over it.
+    For a melt radius th, the front is where ang + rag(p) = th (rag: the fBm term above, at the point p
+    itself). Along the ring vertex i of grey.c's mf_draw_ring_on_globe (the same tangent frame MF_T1/MF_T2),
+    solve for ang by fixed-point iteration and return lag[th][i] = th - ang in milliradians (+0.015, the
+    offset of the bright band). The textures only exist at the MELT radii; in between the ring keeps the
+    same noise, so it stays glued to whatever part of the front is showing."""
+    N = IMPACT_N.astype(np.float64)
+    T1 = np.array([0.60386, 0.79709, 0.0]); T2 = np.cross(N, T1)
+    T2 /= np.linalg.norm(T2)
+    ph = np.arange(n_ph + 1) * (2 * math.pi / n_ph)
+    out = []
+    for k in range(n_th):
+        th = k * step
+        if th <= 0:
+            out.append([0] * (n_ph + 1)); continue
+        a = np.full(ph.shape, th)
+        for _ in range(6):
+            q = (N[None] * np.cos(a)[:, None] + (T1[None] * np.cos(ph)[:, None] + T2[None] * np.sin(ph)[:, None])
+                 * np.sin(a)[:, None])
+            px, py, pz = rot(q[:, 0].astype(np.float32), q[:, 1].astype(np.float32), q[:, 2].astype(np.float32))
+            rag = 0.10 * fbm(px * 4 + 2, py * 4, pz * 4, 4) * min(1.0, th / 0.6)
+            a = np.clip(th - rag, 0.0, math.pi)
+        out.append([int(round((th - x + 0.015) * 1000)) for x in a])
+    return step, out
+
+
+def front_table_c():
+    step, tab = front_table()
+    o = [f'#define MF_FRONT_TH {len(tab)}', f'#define MF_FRONT_STEP {step}f',
+         f'static const short k_mf_front[MF_FRONT_TH][{len(tab[0])}] = {{  /* moonfall.py front_table (mrad) */']
+    o += ['    { ' + ', '.join(str(v) for v in row) + ' },' for row in tab]
+    o.append('};')
+    return '\n'.join(o) + '\n'
+
+
 TOP_R, TOP_M, TOP_W, TOP_H = 1024, 96, 1664, 472             # the horizon crop: a 1024 px radius Earth
 
 

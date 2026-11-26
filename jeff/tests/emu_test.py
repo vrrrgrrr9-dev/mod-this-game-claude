@@ -1001,7 +1001,7 @@ call('jeff_get_char', menu.ptr, menu.ptr, ret, 1, argv)
 check(menu.get('char_name') == 'Grey' and menu.get('char_obj') == 687, 'name / object 687')
 check(sprites.get(menu.get('char_face'), ('',))[0] == 'grey_face.png', 'portrait card = grey_face.png')
 ngr = len(sprites) - nspr
-check(ngr == 49 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
+check(ngr == 60 and sum(1 for v in sounds.values() if str(v).startswith('grey_')) == 4, f'loaded {ngr} Grey sprites, 4 sounds')
 check(any(c[0] == 'object_set_sprite' and c[1] == 687 for c in calls), 'object_set_sprite(o_grey, preview)')
 
 print('[23] Grey: create + alarm0')
@@ -1131,13 +1131,18 @@ seen, hits, xs = grun(11, frames=120, setup=low_jump)
 check('grey_bolt.png' not in seen and gr_ctrl.get('is_attacking') == 0, 'landed before the spin ended: no chain on the ground')
 for _ in range(30): gtick(press_next=False)
 
-print('[27] Grey skills: Clone Legion, Element Overload')
-grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 470)
+print('[27] Grey skills: Glitch Axe (launcher), Element Overload')
+grey.set('x', 380); grey.set('image_xscale', 1); gfoe.set('x', 430)
+first_new = next_id[0]
 seen, hits, xs = grun(100, press=False)
-for _ in range(60): gtick(press_next=False); seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}; hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; calls.clear()
-check(len(hits) >= 5, f'Clone Legion: {len(hits)} hits')
-check({'grey_spike.png', 'grey_fire.png', 'grey_spear.png', 'grey_bolt.png', 'grey_error.png'} <= seen,
-      f'ice, fire, sky spear, lightning clones and the ERROR flash (missing {sorted({"grey_spike.png", "grey_fire.png", "grey_spear.png", "grey_bolt.png", "grey_error.png"} - seen)})')
+for _ in range(30): gtick(press_next=False); seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}; hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; calls.clear()
+axe_hb = [i for i in insts.values() if i.obj == 224 and i.id >= first_new]
+check(len(hits) == 1 and len(axe_hb) == 1, f'Glitch Axe: one hit ({len(hits)})')
+check(axe_hb and axe_hb[0].get('vforce') <= -10 and axe_hb[0].get('can_knock') == 1,
+      f'it launches him high and knocks him down (vforce {axe_hb[0].get("vforce") if axe_hb else None})')
+check({'grey_axe.png', 'grey_spawn.png', 'grey_arc.png', 'grey_ring.png'} <= seen,
+      f'the axe, its materialising, the swing arc and the ring drawn (missing {sorted({"grey_axe.png", "grey_spawn.png", "grey_arc.png", "grey_ring.png"} - seen)})')
+check('BAD_SPRITE_DRAW' not in seen and gr_ctrl.get('is_attacking') == 0, 'clean, and the move is over')
 grey.set('x', 380); gfoe.set('x', 470)
 seen, hits, xs = grun(110, press=False)
 for _ in range(40): gtick(press_next=False); seen |= {sprites[c[1]][0] for c in calls if c[0] == 'draw' and c[1] in sprites}; hits += [c for c in calls if c[0] == 'instance_create' and c[1] == 224]; calls.clear()
@@ -1158,13 +1163,13 @@ check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar s
 check(grey.get('depth') == -15000, 'drawn over the HUD')
 seen, hits, bad, maxd, maxb, held, hit_t = set(), [], False, 0, 0, True, -1
 by_phase = {}
-for t in range(1, 461):
+for t in range(1, 521):                                    # MOONFALL is 500 frames
     calls.clear()
     call('gml_Object_o_grey_Draw_72', grey.ptr, grey.ptr)
     gtick(gui=True)
     names = {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites}
     seen |= names
-    for ph, (a_, b_) in (('ground', (40, 90)), ('space', (120, 236)), ('impact', (242, 330)), ('lava', (380, 440))):
+    for ph, (a_, b_) in (('ground', (40, 90)), ('space', (120, 236)), ('impact', (242, 370)), ('lava', (420, 500))):
         if a_ <= t < b_: by_phase.setdefault(ph, set()).update(names)
     new_hits = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
     if new_hits and hit_t < 0: hit_t = t
@@ -1172,10 +1177,10 @@ for t in range(1, 461):
     bad |= any(c[0] in GBAD for c in calls)
     maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'stretched', 'part', 'prim_end')))
     maxb = max(maxb, sum(1 for c in calls if c[0] == 'blend_switch'))
-    if t < 370 and abs(gfoe.get('x') - 470) > 1: held = False
+    if t < 410 and abs(gfoe.get('x') - 470) > 1: held = False
     calls_keep = [c for c in calls if c[0] == 'layer_visible']
     calls.clear(); calls.extend(calls_keep)
-check(len(hits) == 1 and 370 <= hit_t <= 376, f'one blow, when it lands back on the ground: {len(hits)} hits at frame {hit_t}')
+check(len(hits) == 1 and 410 <= hit_t <= 416, f'one blow, when it lands back on the ground: {len(hits)} hits at frame {hit_t}')
 check({'grey_moon_big.png'} <= by_phase.get('ground', set()), 'the Moon appears in the sky over the battlefield')
 check({'grey_earth.png', 'grey_moon_big.png', 'grey_stars.png'} <= by_phase.get('space', set()), f'space: Earth, Moon, stars ({sorted(by_phase.get("space", set()))})')
 check({'grey_earth_top.png'} <= seen, 'the horizon crop as the camera clears the atmosphere')
@@ -1195,13 +1200,93 @@ calls.clear(); call('gml_Object_o_grey_Draw_72', grey.ptr, grey.ptr)
 check({'grey_lava_sky.png', 'grey_lava_crust.png'} <= {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites},
       'the lava world stays for the rest of the match')
 
+print('[28b] Grey: a second MOONFALL in the same match starts clean, and lasts 500 frames')
+grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 470); g_ectrl.set('plr_hp', 1900)
+for _ in range(10): gtick(press_next=False)
+gr_ctrl.set('key_defend', 1); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
+calls.clear(); gtick(gui=True)
+gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
+early_rocks, end_t = 0, -1
+for t in range(1, 521):
+    calls.clear(); gtick(gui=True)
+    if 120 <= t < 150:                                   # space, before the Moon sheds anything this time
+        early_rocks += sum(1 for c in calls if c[0] == 'draw' and c[1] in sprites and sprites[c[1]][0] == 'grey_rocks.png')
+    if end_t < 0 and gr_ctrl.get('can_gethurt') == 1: end_t = t
+check(early_rocks == 0, f'no frozen debris left over from the first MOONFALL ({early_rocks} rock draws)')
+check(499 <= end_t <= 501, f'the special lasts 500 frames at 60 fps (over at frame {end_t})')
+calls.clear()
+
+print('[28c] Grey bow stance (double-tap shield) + INFERNO ARROW (shield + skill in the stance)')
+def drawn_now(): return {sprites[c[1]][0] for c in calls if c[0] in ('draw', 'stretched', 'part') and c[1] in sprites}
+grey.set('x', 400); grey.set('image_xscale', 1); gfoe.set('x', 470); g_ectrl.set('plr_hp', 1900)
+for _ in range(30): gtick(press_next=False)
+def shield_tap(): gr_ctrl.set('key_defend', 1); gtick(press_next=False); gr_ctrl.set('key_defend', 0); gtick(press_next=False)
+shield_tap()
+for _ in range(30): gtick(press_next=False)
+calls.clear(); gtick(press_next=False)
+check('grey_bow.png' not in drawn_now(), 'one shield press: no bow')
+shield_tap(); shield_tap()
+for _ in range(12): gtick(press_next=False)
+calls.clear(); gtick(press_next=False)
+check('grey_bow.png' in drawn_now(), 'double-tap shield: the bow in his hand')
+calls.clear()
+gr_ctrl.set('key_defend', 1); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
+gtick(gui=True)
+gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
+check(gr_ctrl.get('plr_energy') == 0 and gr_ctrl.get('can_gethurt') == 0, 'bar spent, untouchable')
+first_new = next_id[0]
+seen, ph, hits, hit_t, bad, maxd, maxb, end_t = set(), {}, [], -1, False, 0, 0, -1
+PH = (('closeup', (40, 120)), ('flight', (136, 176)), ('flash', (178, 186)), ('top', (188, 236)), ('spike', (238, 248)),
+      ('cloud', (250, 316)), ('after', (320, 378)))
+for t in range(1, 401):
+    calls.clear()
+    call('gml_Object_o_grey_Draw_72', grey.ptr, grey.ptr)
+    gtick(gui=True)
+    names = drawn_now(); seen |= names
+    for k_, (a_, b_) in PH:
+        if a_ <= t < b_: ph.setdefault(k_, set()).update(names)
+    nh = [c for c in calls if c[0] == 'instance_create' and c[1] == 224]
+    if nh and hit_t < 0: hit_t = t
+    hits += nh
+    bad |= any(c[0] in GBAD for c in calls)
+    maxd = max(maxd, sum(1 for c in calls if c[0] in ('draw', 'stretched', 'part', 'prim_end')))
+    maxb = max(maxb, sum(1 for c in calls if c[0] == 'blend_switch'))
+    if end_t < 0 and gr_ctrl.get('can_gethurt') == 1: end_t = t
+hb = [i for i in insts.values() if i.obj == 224 and i.id >= first_new]
+check(len(hits) == 1 and 316 <= hit_t <= 320, f'one blow, back on the ground: {len(hits)} hits at frame {hit_t}')
+check(hb and hb[0].get('can_defend') == 0 and hb[0].get('can_knock') == 1 and hb[0].get('vforce') <= -10,
+      'unblockable, launches and knocks down')
+def has(ph_, need): return set(need) <= ph.get(ph_, set())
+check(has('closeup', ['grey_ia_sky.png', 'grey_firebow.png', 'grey_fire.png', 'grey_shape.png']), f'close-up: the sky, the bow of fire, the arrow, Grey ({sorted(ph.get("closeup", []))})')
+check(has('flight', ['grey_firetrail.png', 'grey_speedring.png', 'grey_ia_hills.png']), f'flight: the fire streak, speed rings, the plain ({sorted(ph.get("flight", []))})')
+check(has('top', ['grey_ia_top.png', 'grey_ia_crater.png', 'grey_rocks.png']), f'from above: the ground, the crater, rocks ({sorted(ph.get("top", []))})')
+check(has('spike', ['grey_ia_splash.png']), 'the white-out spike')
+check(has('cloud', ['grey_ia_cloud.png', 'grey_rocks.png', 'grey_ring.png']), f'the mushroom cloud, rocks, the ground ring ({sorted(ph.get("cloud", []))})')
+check(has('after', ['grey_ia_cloud.png', 'grey_bow.png']), 'afterwards: the cloud behind, the bow still in his hand')
+check('grey_earth.png' not in seen, 'not MOONFALL')
+check(not bad, 'no invalid draws or primitives')
+check(maxd < 1400 and maxb <= 24, f'draws / blend switches per frame bounded (max {maxd} / {maxb})')
+check(379 <= end_t <= 381, f'the cinematic lasts 380 frames (over at frame {end_t})')
+calls.clear()
+shield_tap(); shield_tap()
+for _ in range(12): gtick(press_next=False)
+calls.clear(); gtick(press_next=False)
+check('grey_bow.png' not in drawn_now(), 'double-tap shield again: the bow is put away')
+gr_ctrl.set('key_defend', 1); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
+gtick(gui=True); gr_ctrl.set('key_defend', 0); gr_ctrl.set('keyp_special', 0)
+seen = set()
+for t in range(1, 521):
+    calls.clear(); gtick(gui=True); seen |= drawn_now()
+check('grey_earth.png' in seen and 'grey_firebow.png' not in seen, 'out of the stance: MOONFALL again')
+calls.clear()
+
 print('[29] Grey as the CPU: MOONFALL with a full bar')
 gr_ctrl.set('plr_controller', 2); gr_ctrl.set('keyp_special', 1); gr_ctrl.set('plr_energy', 100)
 grey.set('x', 400); gfoe.set('x', 470)
 calls.clear(); gtick()
 gr_ctrl.set('keyp_special', 0)
 check(gr_ctrl.get('plr_energy') == 0, 'CPU fired it without holding shield')
-for _ in range(460): gtick(); calls.clear()
+for _ in range(520): gtick(); calls.clear()
 check(gr_ctrl.get('can_gethurt') == 1, 'and finished it')
 gr_ctrl.set('plr_controller', 0)
 

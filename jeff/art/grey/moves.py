@@ -9,7 +9,7 @@ import json, math
 from skel import pose, ANGLES, EASE
 import poses as P
 
-WEAPONS = {'none': 0, 'sword': 1, 'spear': 2, 'giant': 3}
+WEAPONS = {'none': 0, 'sword': 1, 'spear': 2, 'giant': 3, 'axe': 4, 'bow': 5}   # 3 bits in GKey.flags (>> 2 & 7)
 COLORS = {'grey': 0, 'glitch': 1, 'ice': 2, 'fire': 3, 'volt': 4}
 EVT = ['hit', 'clone', 'proj', 'spike', 'fx', 'snd', 'shake', 'tele', 'vel', 'glitch']
 PROJ = {'fire': 0, 'shard': 1, 'spear': 2, 'spear_down': 3}
@@ -210,14 +210,55 @@ for i, dx in enumerate((24, 48, 72)):
 # ---------------------------------------------------------------------------------------------
 # skills
 # ---------------------------------------------------------------------------------------------
-s1 = move(TL('S1', 74))                                    # clone legion
-CAST = S(sp=-96, hd=-98, uf=-60, lf=-90, ub=200, lb=160, tf=60, sf=100, tb=118, sb=98)
-s1.k(0, ST).k(6, CAST, 'out').k(60, CAST, 'lin').k(74, ST, 'inout')
-s1.ev(6, 'glitch', n=12).fx(6, 'error', 0, -70, 1.0).snd(6, 'clone', 0.8).snd(6, 'cast', 0.9)
-s1.clone(9, 'CL_ICE', -40, 0, rel='enemy', face=1)
-s1.clone(12, 'CL_FIRE', -70, 0, rel='enemy', face=1)
-s1.clone(15, 'CL_SPEAR_SKY', 6, -86, rel='enemy', face=-1)
-s1.clone(18, 'CL_VOLT', 60, 0, rel='enemy', face=-1)
+def grip2(p, d=7.0):
+    """two hands on one haft: solve the back arm (2-link IK from the shared shoulder) so the back hand
+    holds the haft d px further up it than the front hand (the weapon's grip). The elbow bends the
+    same way as the front arm's."""
+    from skel import joints, L_UARM, L_FARM
+    j = joints(p)
+    wa = math.radians(p['w'] + p.get('rot', 0))
+    tx, ty = j['hf'][0] + math.cos(wa) * d, j['hf'][1] + math.sin(wa) * d
+    sx, sy = j['sh']
+    D = min(math.hypot(tx - sx, ty - sy), L_UARM + L_FARM - 0.01)
+    base = math.atan2(ty - sy, tx - sx)
+    half = math.acos(max(-1.0, min(1.0, D / (L_UARM + L_FARM))))     # equal bones: the elbow's offset angle
+    best = None
+    for sgn in (1, -1):
+        ub, lb = base + sgn * half, base - sgn * half
+        ex, ey = sx + math.cos(ub) * L_UARM, sy + math.sin(ub) * L_UARM
+        score = math.hypot(ex - j['ef'][0], ey - j['ef'][1])
+        if best is None or score < best[0]: best = (score, math.degrees(ub), math.degrees(lb))
+    q = dict(p); q['ub'], q['lb'] = best[1], best[2]
+    return q
+
+
+# skill 1: GLITCH AXE - a two-handed glitch axe materialises; a coiled crouch, then an explosive rising
+# swing from low behind, under and up through the opponent, which launches him high (he flies and falls)
+s1 = move(TL('S1', 50))
+AX_WIND = grip2(S(sp=-66, hd=-62, uf=150, lf=162, tf=18, sf=116, tb=150, sb=80, hx=-3, w=160))   # deep, axe low behind
+AX_COIL = grip2(S(sp=-62, hd=-58, uf=156, lf=168, tf=12, sf=118, tb=156, sb=76, hx=-4, w=166))   # coiled a little lower
+AX_LOW = grip2(S(sp=-80, hd=-72, uf=55, lf=20, tf=40, sf=108, tb=136, sb=92, w=20))              # the head skims the ground
+AX_RISE = grip2(S(sp=-97, hd=-92, uf=-28, lf=-42, tf=72, sf=96, tb=116, sb=124, w=-22))           # through him, onto the toes
+AX_OVER = grip2(S(sp=-108, hd=-104, uf=-98, lf=-112, tf=82, sf=92, tb=104, sb=118, w=-112))       # follow-through overhead, arched
+AX_REST = grip2(S(sp=-88, hd=-84, uf=48, lf=-18, tf=60, sf=98, tb=118, sb=100, w=-78))            # holding it upright, settling
+for p_ in (AX_LOW, AX_RISE, AX_OVER): p_['back_over'] = 1   # both hands in front of the body: the back arm crosses over
+s1.k(0, ST).k(5, AX_WIND, 'out', wk='axe').k(9, AX_COIL, 'lin', wk='axe')
+s1.k(11, AX_LOW, 'in', wk='axe', mx=5, gh=1).k(13, AX_RISE, 'expo', wk='axe', mx=10, gh=1)
+s1.k(20, AX_OVER, 'out', wk='axe', mx=14, gh=1).k(34, AX_REST, 'inout', wk='axe', mx=14)
+s1.k(50, ST, 'inout', wk='none', mx=14)
+s1.ev(2, 'glitch', n=8).fx(2, 'spawn', 0, 0, 0.8).snd(2, 'glitch', 1.0)      # the axe materialises
+s1.fx(10, 'spark', 4, -2, 0.8).fx(11, 'spark', 34, -3, 0.7)      # the head scrapes the floor on the way through
+s1.snd(12, 'woosh3', 0.9)
+s1.hit(13, 22, -22, 64, 1.6, 1.4, 1.6, 2.5, -11.0, 30, knock=1, spr=3, col='glitch', snd=2)   # vf -11: launched high
+s1.fx(13, 'arc', 22, -26, 1.4).fx(13, 'shock', 18, -2, 1.0).fx(13, 'ring', 18, -1, 1.0)
+s1.ev(13, 'shake', n=3).snd(13, 'strong2', 0.9)
+for i, dy in enumerate((-50, -80, -110)):                    # a rising streak of sparks over him as he flies
+    s1.fx(15 + 2 * i, 'spark', 0, dy, 0.9 - 0.15 * i, rel='enemy')
+s1.ev(44, 'glitch', n=6).snd(44, 'glitch', 1.3)                # ... and dematerialises
+
+CAST = S(sp=-96, hd=-98, uf=-60, lf=-90, ub=200, lb=160, tf=60, sf=100, tb=118, sb=98)   # (Element Overload's cast)
+# Clone Legion's four clone scripts (CL_ICE, CL_FIRE, CL_SPEAR_SKY, CL_VOLT) are no longer started by any move;
+# they are kept so Clone Legion can come back (e.g. on another input) without re-authoring them.
 
 s2 = move(TL('S2', 72))                                    # element overload: ice prison, fire pillar, spear rain
 SLAM = S(sp=-48, hd=-62, uf=80, lf=88, ub=90, lb=95, back_over=1, tf=10, sf=120, tb=150, sb=74)
